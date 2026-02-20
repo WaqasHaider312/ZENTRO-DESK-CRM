@@ -181,6 +181,7 @@ export interface Activity {
 export interface NavItem {
   label: string
   href: string
-  icon: React.ComponentType<{ className?: string }>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: any
   badge?: number
 }

@@ -182,8 +182,8 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
       is_deleted: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      attachment_urls: null,
-      channel_message_id: null,
+      attachment_urls: undefined,
+      channel_message_id: undefined,
     }
     setMessages(prev => [...prev, optimisticMsg])
     activeTab === 'reply' ? setReplyText('') : setNoteText('')
