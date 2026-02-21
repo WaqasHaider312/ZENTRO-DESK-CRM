@@ -45,12 +45,13 @@ export default function Inboxes() {
 
   useEffect(() => {
     fetchInboxes()
-    const params = new URLSearchParams(window.location.search)
-    const code = params.get('code')
-    const state = params.get('state')
+    // Check sessionStorage for OAuth callback params (set by /oauth/callback page)
+    const code = sessionStorage.getItem('oauth_code')
+    const state = sessionStorage.getItem('oauth_state')
     if (code && state) {
+      sessionStorage.removeItem('oauth_code')
+      sessionStorage.removeItem('oauth_state')
       handleOAuthCallback(code, state)
-      window.history.replaceState({}, '', window.location.pathname)
     }
   }, [organization])
 
@@ -70,7 +71,7 @@ export default function Inboxes() {
   }
 
   const launchOAuthPopup = (type: 'facebook' | 'instagram') => {
-    const redirectUri = `${window.location.origin}${window.location.pathname}`
+    const redirectUri = `${window.location.origin}/oauth/callback`
     const state = `${type}:${organization!.id}`
     const scope = type === 'facebook'
       ? 'pages_messaging,pages_show_list,pages_manage_metadata'
@@ -83,7 +84,7 @@ export default function Inboxes() {
     if (!orgId || !organization || orgId !== organization.id) return
     setModal(type as ModalType); setConnecting(true)
     try {
-      const redirectUri = `${window.location.origin}${window.location.pathname}`
+      const redirectUri = `${window.location.origin}/oauth/callback`
       const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

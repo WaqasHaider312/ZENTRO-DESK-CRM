@@ -16,6 +16,7 @@ import CannedResponses from '@/pages/settings/CannedResponses'
 import Labels from '@/pages/settings/Labels'
 import OrgSettings from '@/pages/settings/OrgSettings'
 import NotFound from '@/pages/NotFound'
+import OAuthCallback from '@/pages/OAuthCallback'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +66,7 @@ const AppRoutes = () => (
     <Route path="/" element={<RootRedirect />} />
     <Route path="/login" element={<Login />} />
     <Route path="/signup" element={<Signup />} />
+    <Route path="/oauth/callback" element={<OAuthCallback />} />
 
     <Route
       path="/app/:orgSlug"
