@@ -17,7 +17,6 @@ Deno.serve(async (req) => {
         const { conversation_id, message_text, agent_id, agent_name, organization_id } = await req.json()
         console.log('send-message called for conversation:', conversation_id)
 
-        // Get conversation with inbox and contact
         const { data: conv, error: convError } = await supabase
             .from('conversations')
             .select('*, inbox:inboxes(*), contact:contacts(*)')
@@ -33,16 +32,73 @@ Deno.serve(async (req) => {
         const contact = conv.contact
         const channelType = inbox.channel_type
 
-        console.log('Channel type:', channelType, '| Contact:', contact?.fb_psid, contact?.ig_id)
+        console.log('Channel type:', channelType)
 
-        // Send via Facebook/Instagram Graph API
+        // ── WhatsApp ───────────────────────────────────────────────────
+        if (channelType === 'whatsapp') {
+            const waId = contact.wa_id
+
+            if (!waId) {
+                return new Response(JSON.stringify({ error: 'No WhatsApp ID on contact' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            }
+            if (!inbox.wa_phone_number_id || !inbox.wa_access_token) {
+                return new Response(JSON.stringify({ error: 'WhatsApp inbox missing phone_number_id or access_token' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            }
+
+            const waRes = await fetch(`https://graph.facebook.com/v19.0/${inbox.wa_phone_number_id}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${inbox.wa_access_token}`,
+                },
+                body: JSON.stringify({
+                    messaging_product: 'whatsapp',
+                    recipient_type: 'individual',
+                    to: waId,
+                    type: 'text',
+                    text: { body: message_text },
+                }),
+            })
+
+            const waData = await waRes.json()
+            console.log('WhatsApp send result:', JSON.stringify(waData))
+
+            if (waData.error) {
+                console.error('WhatsApp API error:', waData.error)
+                return new Response(JSON.stringify({ error: waData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            }
+
+            const messageId = waData.messages?.[0]?.id
+
+            await supabase.from('messages').insert({
+                conversation_id,
+                organization_id,
+                sender_type: 'agent',
+                sender_id: agent_id,
+                sender_name: agent_name,
+                message_type: 'text',
+                content: message_text,
+                channel_message_id: messageId,
+                is_read: true,
+                is_private: false,
+            })
+
+            await supabase.from('conversations').update({
+                latest_message: message_text,
+                latest_message_at: new Date().toISOString(),
+                latest_message_sender: agent_name,
+            }).eq('id', conversation_id)
+
+            return new Response(JSON.stringify({ success: true, message_id: messageId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+
+        // ── Facebook & Instagram ───────────────────────────────────────
         if (channelType === 'facebook' || channelType === 'instagram') {
             const recipientId = channelType === 'facebook' ? contact.fb_psid : contact.ig_id
 
             if (!recipientId) {
                 return new Response(JSON.stringify({ error: 'No recipient ID on contact' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             }
-
             if (!inbox.fb_access_token) {
                 return new Response(JSON.stringify({ error: 'No access token on inbox' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             }
@@ -54,7 +110,7 @@ Deno.serve(async (req) => {
                     recipient: { id: recipientId },
                     message: { text: message_text },
                     messaging_type: 'RESPONSE',
-                })
+                }),
             })
 
             const fbData = await fbRes.json()
@@ -65,7 +121,6 @@ Deno.serve(async (req) => {
                 return new Response(JSON.stringify({ error: fbData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             }
 
-            // Save message to DB
             await supabase.from('messages').insert({
                 conversation_id,
                 organization_id,
@@ -79,10 +134,16 @@ Deno.serve(async (req) => {
                 is_private: false,
             })
 
+            await supabase.from('conversations').update({
+                latest_message: message_text,
+                latest_message_at: new Date().toISOString(),
+                latest_message_sender: agent_name,
+            }).eq('id', conversation_id)
+
             return new Response(JSON.stringify({ success: true, message_id: fbData.message_id }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
 
-        // For other channels (widget etc) — just save to DB, delivery handled differently
+        // ── Widget & other channels ────────────────────────────────────
         await supabase.from('messages').insert({
             conversation_id,
             organization_id,
@@ -94,6 +155,12 @@ Deno.serve(async (req) => {
             is_read: true,
             is_private: false,
         })
+
+        await supabase.from('conversations').update({
+            latest_message: message_text,
+            latest_message_at: new Date().toISOString(),
+            latest_message_sender: agent_name,
+        }).eq('id', conversation_id)
 
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 

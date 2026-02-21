@@ -74,7 +74,6 @@ serve(async (req) => {
                         organization_id: inbox.organization_id,
                         name,
                         email,
-                        channel: 'widget',
                     })
                     .select()
                     .single()
@@ -90,7 +89,6 @@ serve(async (req) => {
                     inbox_id: inbox.id,
                     contact_id: contact.id,
                     status: 'open',
-                    channel: 'widget',
                     subject: message.substring(0, 80),
                 })
                 .select()
@@ -102,9 +100,8 @@ serve(async (req) => {
                 conversation_id: conv.id,
                 organization_id: inbox.organization_id,
                 content: message,
-                message_type: 'incoming',
+                message_type: 'text',
                 sender_type: 'contact',
-                sender_id: contact.id,
                 sender_name: name,
                 is_visitor: true,
             })
@@ -138,9 +135,8 @@ serve(async (req) => {
                 conversation_id: conv.id,
                 organization_id: conv.organization_id,
                 content,
-                message_type: 'incoming',
+                message_type: 'text',
                 sender_type: 'contact',
-                sender_id: visitor_id,
                 is_visitor: true,
             }).select().single()
 

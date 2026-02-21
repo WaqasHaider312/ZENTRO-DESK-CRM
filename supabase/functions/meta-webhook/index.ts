@@ -1,6 +1,5 @@
 // supabase/functions/meta-webhook/index.ts
-// Receives all incoming messages from Facebook & Instagram
-// Routes them to the correct organization based on page ID
+// Receives all incoming messages from Facebook, Instagram & WhatsApp
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -9,7 +8,6 @@ const APP_SECRET = Deno.env.get('META_APP_SECRET')!
 const B_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-// Verify webhook signature from Meta
 async function verifySignature(body: string, signature: string): Promise<boolean> {
     try {
         const key = await crypto.subtle.importKey(
@@ -31,12 +29,11 @@ async function verifySignature(body: string, signature: string): Promise<boolean
 Deno.serve(async (req) => {
     const url = new URL(req.url)
 
-    // ── GET: Webhook verification from Meta ──────────────────────────
+    // ── GET: Webhook verification ────────────────────────────────────
     if (req.method === 'GET') {
         const mode = url.searchParams.get('hub.mode')
         const token = url.searchParams.get('hub.verify_token')
         const challenge = url.searchParams.get('hub.challenge')
-
         if (mode === 'subscribe' && token === VERIFY_TOKEN) {
             console.log('Webhook verified by Meta')
             return new Response(challenge, { status: 200 })
@@ -47,8 +44,6 @@ Deno.serve(async (req) => {
     // ── POST: Incoming messages ──────────────────────────────────────
     if (req.method === 'POST') {
         const rawBody = await req.text()
-
-        // Verify signature
         const signature = req.headers.get('x-hub-signature-256') || ''
         const isValid = await verifySignature(rawBody, signature)
         if (!isValid) {
@@ -59,10 +54,7 @@ Deno.serve(async (req) => {
         const body = JSON.parse(rawBody)
         console.log('Webhook payload:', JSON.stringify(body))
 
-        // Always return 200 immediately to Meta
-        // Process async
         processWebhook(body).catch(err => console.error('Processing error:', err))
-
         return new Response('OK', { status: 200 })
     }
 
@@ -71,9 +63,42 @@ Deno.serve(async (req) => {
 
 async function processWebhook(body: any) {
     const supabase = createClient(B_URL, SUPABASE_SERVICE_KEY)
+    const object = body.object
 
-    const object = body.object // 'page' for Facebook, 'instagram' for Instagram
+    // ── WhatsApp ─────────────────────────────────────────────────────
+    if (object === 'whatsapp_business_account') {
+        for (const entry of body.entry || []) {
+            for (const change of entry.changes || []) {
+                if (change.field !== 'messages') continue
+                const value = change.value
+                const phoneNumberId = value.metadata?.phone_number_id
+                if (!phoneNumberId) continue
 
+                // Find inbox by WhatsApp phone_number_id
+                const { data: inbox, error: inboxError } = await supabase
+                    .from('inboxes')
+                    .select('id, organization_id, channel_type, name, wa_access_token')
+                    .eq('wa_phone_number_id', phoneNumberId)
+                    .eq('channel_type', 'whatsapp')
+                    .eq('is_active', true)
+                    .single()
+
+                if (inboxError || !inbox) {
+                    console.log('No WhatsApp inbox found for phone_number_id:', phoneNumberId, inboxError?.message)
+                    continue
+                }
+
+                console.log('Found WhatsApp inbox:', inbox.id)
+
+                for (const msg of value.messages || []) {
+                    await handleWhatsAppMessage(supabase, inbox, msg, value.contacts || [])
+                }
+            }
+        }
+        return
+    }
+
+    // ── Facebook & Instagram ─────────────────────────────────────────
     if (object !== 'page' && object !== 'instagram') {
         console.log('Unknown object type:', object)
         return
@@ -81,11 +106,8 @@ async function processWebhook(body: any) {
 
     for (const entry of body.entry || []) {
         const pageId = entry.id
-
-        // Find which inbox this page belongs to
-        // Both FB and Instagram use fb_page_id (entry.id is always the FB page ID)
-        // We distinguish by channel_type to avoid .single() failing on multiple rows
         const channelType = object === 'page' ? 'facebook' : 'instagram'
+
         const { data: inbox, error: inboxError } = await supabase
             .from('inboxes')
             .select('id, organization_id, channel_type, name, fb_access_token')
@@ -100,14 +122,12 @@ async function processWebhook(body: any) {
         }
         console.log('Found inbox:', inbox.id, inbox.channel_type)
 
-        // Handle Facebook Messenger messages
         if (object === 'page') {
             for (const event of entry.messaging || []) {
                 await handleFacebookMessage(supabase, inbox, event)
             }
         }
 
-        // Handle Instagram messages
         if (object === 'instagram') {
             for (const event of entry.messaging || []) {
                 await handleInstagramMessage(supabase, inbox, event)
@@ -116,10 +136,92 @@ async function processWebhook(body: any) {
     }
 }
 
+// ── WhatsApp handler ─────────────────────────────────────────────────
+async function handleWhatsAppMessage(supabase: any, inbox: any, msg: any, waContacts: any[]) {
+    if (msg.type !== 'text' && msg.type !== 'image' && msg.type !== 'audio' && msg.type !== 'video' && msg.type !== 'document') return
+
+    const waId = msg.from // sender's WhatsApp number e.g. '923001234567'
+    const messageId = msg.id
+    const messageText = msg.text?.body || ''
+    const timestamp = msg.timestamp
+
+    console.log(`WhatsApp message from ${waId}: ${messageText}`)
+
+    // Get display name from contacts array in payload
+    const waContact = waContacts.find((c: any) => c.wa_id === waId)
+    const displayName = waContact?.profile?.name || waId
+
+    // Find or create contact by wa_id
+    const contact = await findOrCreateWhatsAppContact(supabase, inbox.organization_id, waId, displayName)
+    if (!contact) return
+
+    // Find or create conversation
+    const conversation = await findOrCreateConversation(supabase, inbox, contact, messageId)
+    if (!conversation) return
+
+    // Save message
+    const messageType = msg.type === 'text' ? 'text' : (msg.type === 'image' ? 'image' : 'file')
+    await supabase.from('messages').insert({
+        conversation_id: conversation.id,
+        organization_id: inbox.organization_id,
+        sender_type: 'contact',
+        sender_id: contact.id,
+        sender_name: displayName,
+        message_type: messageType,
+        content: messageText || `[${msg.type}]`,
+        channel_message_id: messageId,
+        is_read: false,
+        is_private: false,
+    })
+
+    // Update conversation latest message
+    await supabase.from('conversations').update({
+        latest_message: messageText || `[${msg.type}]`,
+        latest_message_at: new Date(parseInt(timestamp) * 1000).toISOString(),
+        latest_message_sender: displayName,
+        status: 'open',
+    }).eq('id', conversation.id)
+
+    console.log('WhatsApp message saved for conversation:', conversation.id)
+}
+
+async function findOrCreateWhatsAppContact(supabase: any, orgId: string, waId: string, name: string) {
+    try {
+        const { data: existing } = await supabase
+            .from('contacts')
+            .select('*')
+            .eq('organization_id', orgId)
+            .eq('wa_id', waId)
+            .maybeSingle()
+
+        if (existing) return existing
+
+        const { data: newContact, error } = await supabase
+            .from('contacts')
+            .insert({
+                organization_id: orgId,
+                name: name || waId,
+                wa_id: waId,
+                phone: '+' + waId,
+                is_blocked: false,
+            })
+            .select()
+            .single()
+
+        if (error) {
+            console.error('Error creating WhatsApp contact:', error)
+            return null
+        }
+        return newContact
+    } catch (err) {
+        console.error('findOrCreateWhatsAppContact error:', err)
+        return null
+    }
+}
+
+// ── Facebook handler ─────────────────────────────────────────────────
 async function handleFacebookMessage(supabase: any, inbox: any, event: any) {
-    // Skip if it's an echo (message we sent)
     if (event.message?.is_echo) return
-    // Skip if no message
     if (!event.message) return
 
     const senderId = event.sender?.id
@@ -128,25 +230,15 @@ async function handleFacebookMessage(supabase: any, inbox: any, event: any) {
     const mid = event.message?.mid
 
     if (!senderId) return
-
     console.log(`FB message from ${senderId}: ${messageText}`)
 
-    // Find or create contact
-    const contact = await findOrCreateContact(supabase, inbox.organization_id, {
-        fb_psid: senderId,
-        channel: 'facebook',
-    })
-
+    const contact = await findOrCreateContact(supabase, inbox.organization_id, { fb_psid: senderId, channel: 'facebook' })
     if (!contact) return
 
-    // Find or create conversation
     const conversation = await findOrCreateConversation(supabase, inbox, contact, mid)
     if (!conversation) return
 
-    // Create message
-    const attachmentUrls = attachments
-        .filter((a: any) => a.payload?.url)
-        .map((a: any) => a.payload.url)
+    const attachmentUrls = attachments.filter((a: any) => a.payload?.url).map((a: any) => a.payload.url)
 
     await supabase.from('messages').insert({
         conversation_id: conversation.id,
@@ -162,9 +254,16 @@ async function handleFacebookMessage(supabase: any, inbox: any, event: any) {
         is_private: false,
     })
 
-    console.log('Message saved for conversation:', conversation.id)
+    await supabase.from('conversations').update({
+        latest_message: messageText || '[Attachment]',
+        latest_message_at: new Date().toISOString(),
+        latest_message_sender: contact.name || 'Unknown',
+    }).eq('id', conversation.id)
+
+    console.log('FB message saved for conversation:', conversation.id)
 }
 
+// ── Instagram handler ────────────────────────────────────────────────
 async function handleInstagramMessage(supabase: any, inbox: any, event: any) {
     if (event.message?.is_echo) return
     if (!event.message) return
@@ -174,14 +273,9 @@ async function handleInstagramMessage(supabase: any, inbox: any, event: any) {
     const mid = event.message?.mid
 
     if (!senderId) return
-
     console.log(`IG message from ${senderId}: ${messageText}`)
 
-    const contact = await findOrCreateContact(supabase, inbox.organization_id, {
-        ig_id: senderId,
-        channel: 'instagram',
-    })
-
+    const contact = await findOrCreateContact(supabase, inbox.organization_id, { ig_id: senderId, channel: 'instagram' })
     if (!contact) return
 
     const conversation = await findOrCreateConversation(supabase, inbox, contact, mid)
@@ -199,45 +293,32 @@ async function handleInstagramMessage(supabase: any, inbox: any, event: any) {
         is_read: false,
         is_private: false,
     })
+
+    await supabase.from('conversations').update({
+        latest_message: messageText,
+        latest_message_at: new Date().toISOString(),
+        latest_message_sender: contact.name || 'Unknown',
+    }).eq('id', conversation.id)
 }
 
-async function findOrCreateContact(supabase: any, orgId: string, info: {
-    fb_psid?: string
-    ig_id?: string
-    channel: string
-}) {
+// ── Shared helpers ───────────────────────────────────────────────────
+async function findOrCreateContact(supabase: any, orgId: string, info: { fb_psid?: string; ig_id?: string; channel: string }) {
     try {
-        // Try to find existing contact
         const field = info.fb_psid ? 'fb_psid' : 'ig_id'
         const value = info.fb_psid || info.ig_id
 
-        const { data: existing } = await supabase
-            .from('contacts')
-            .select('*')
-            .eq('organization_id', orgId)
-            .eq(field, value)
-            .single()
-
+        const { data: existing } = await supabase.from('contacts').select('*').eq('organization_id', orgId).eq(field, value).maybeSingle()
         if (existing) return existing
 
-        // Create new contact
-        const { data: newContact, error } = await supabase
-            .from('contacts')
-            .insert({
-                organization_id: orgId,
-                name: null, // Will be enriched later via Graph API
-                fb_psid: info.fb_psid || null,
-                ig_id: info.ig_id || null,
-                is_blocked: false,
-            })
-            .select()
-            .single()
+        const { data: newContact, error } = await supabase.from('contacts').insert({
+            organization_id: orgId,
+            name: null,
+            fb_psid: info.fb_psid || null,
+            ig_id: info.ig_id || null,
+            is_blocked: false,
+        }).select().single()
 
-        if (error) {
-            console.error('Error creating contact:', error)
-            return null
-        }
-
+        if (error) { console.error('Error creating contact:', error); return null }
         return newContact
     } catch (err) {
         console.error('findOrCreateContact error:', err)
@@ -247,38 +328,27 @@ async function findOrCreateContact(supabase: any, orgId: string, info: {
 
 async function findOrCreateConversation(supabase: any, inbox: any, contact: any, messageId: string) {
     try {
-        // Look for an existing open/pending conversation
         const { data: existing } = await supabase
-            .from('conversations')
-            .select('*')
+            .from('conversations').select('*')
             .eq('organization_id', inbox.organization_id)
             .eq('inbox_id', inbox.id)
             .eq('contact_id', contact.id)
             .in('status', ['open', 'pending'])
             .order('created_at', { ascending: false })
             .limit(1)
-            .single()
+            .maybeSingle()
 
         if (existing) return existing
 
-        // Create new conversation
-        const { data: newConv, error } = await supabase
-            .from('conversations')
-            .insert({
-                organization_id: inbox.organization_id,
-                inbox_id: inbox.id,
-                contact_id: contact.id,
-                status: 'open',
-                channel_conversation_id: messageId,
-            })
-            .select()
-            .single()
+        const { data: newConv, error } = await supabase.from('conversations').insert({
+            organization_id: inbox.organization_id,
+            inbox_id: inbox.id,
+            contact_id: contact.id,
+            status: 'open',
+            channel_conversation_id: messageId,
+        }).select().single()
 
-        if (error) {
-            console.error('Error creating conversation:', error)
-            return null
-        }
-
+        if (error) { console.error('Error creating conversation:', error); return null }
         return newConv
     } catch (err) {
         console.error('findOrCreateConversation error:', err)

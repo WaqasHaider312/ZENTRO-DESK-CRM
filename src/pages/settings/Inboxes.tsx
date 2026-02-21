@@ -20,7 +20,7 @@ const CHANNEL_CONFIG = [
   { type: 'facebook', label: 'Facebook Messenger', icon: Facebook, color: 'bg-blue-500', description: 'Receive messages from your Facebook Page', available: true },
   { type: 'instagram', label: 'Instagram', icon: Instagram, color: 'bg-gradient-to-br from-purple-500 to-pink-500', description: 'Receive Instagram DMs', available: true },
   { type: 'widget', label: 'Web Widget', icon: Globe, color: 'bg-violet-500', description: 'Add a live chat widget to your website', available: true },
-  { type: 'whatsapp', label: 'WhatsApp', icon: MessageSquare, color: 'bg-green-500', description: 'Connect WhatsApp Business (contact us to setup)', available: false, comingSoon: true },
+  { type: 'whatsapp', label: 'WhatsApp', icon: MessageSquare, color: 'bg-green-500', description: 'Connect WhatsApp Business — contact us to get set up', available: false, comingSoon: false, contactUs: true },
 ]
 
 interface FacebookPage {
@@ -231,6 +231,7 @@ export default function Inboxes() {
                     <p className="text-xs text-muted-foreground">{channel.description}</p>
                   </div>
                   {channel.available && <Button variant="outline" size="sm">Connect</Button>}
+                  {(channel as any).contactUs && <Button variant="outline" size="sm" onClick={() => window.open('mailto:support@zentro.app?subject=WhatsApp Setup Request', '_blank')}>Contact Us</Button>}
                 </div>
               ))}
             </div>
