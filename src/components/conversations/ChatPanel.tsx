@@ -129,7 +129,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
         .from('messages')
         .select('*')
         .eq('conversation_id', convId)
-        .eq('is_deleted', false)
+        .neq('is_deleted', true)
         .order('created_at', { ascending: true })
       if (error) throw error
       setMessages(data || [])
