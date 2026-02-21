@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Zentro Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: transparent;
+            overflow: hidden;
+        }
+
+        /* Bubble button */
+        #bubble {
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+            outline: none;
+        }
+
+        #bubble:hover {
+            transform: scale(1.08);
+            box-shadow: 0 6px 24px rgba(99, 102, 241, 0.6);
+        }
+
+        #bubble svg {
+            width: 26px;
+            height: 26px;
+            fill: white;
+            transition: opacity 0.2s;
+        }
+
+        #bubble .icon-chat {
+            opacity: 1;
+            position: absolute;
+        }
+
+        #bubble .icon-close {
+            opacity: 0;
+            position: absolute;
+        }
+
+        #bubble.open .icon-chat {
+            opacity: 0;
+        }
+
+        #bubble.open .icon-close {
+            opacity: 1;
+        }
+
+        /* Chat window */
+        #chat {
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            width: 100%;
+            height: 100%;
+            background: #fff;
+            border-radius: 16px;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        #chat.visible {
+            display: flex;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            padding: 16px 20px;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .header h3 {
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .header p {
+            font-size: 12px;
+            opacity: 0.85;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            color: white;
+            opacity: 0.8;
+            border-radius: 6px;
+        }
+
+        .close-btn:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .online-dot {
+            width: 8px;
+            height: 8px;
+            background: #4ade80;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+
+        /* Pre-chat form */
+        #prechat {
+            flex: 1;
+            padding: 24px 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        #prechat .welcome-msg {
+            font-size: 14px;
+            color: #374151;
+            line-height: 1.5;
+        }
+
+        #prechat label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #374151;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        #prechat input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.15s;
+            font-family: inherit;
+        }
+
+        #prechat input:focus {
+            border-color: #6366f1;
+        }
+
+        #prechat .start-btn {
+            width: 100%;
+            padding: 11px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            font-family: inherit;
+            margin-top: 4px;
+        }
+
+        #prechat .start-btn:hover {
+            opacity: 0.9;
+        }
+
+        #prechat .start-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        #prechat .error {
+            font-size: 12px;
+            color: #ef4444;
+            margin-top: -8px;
+        }
+
+        /* Messages area */
+        #messages-wrap {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #messages-wrap.visible {
+            display: flex;
+        }
+
+        .msg {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+        .msg.visitor {
+            align-items: flex-end;
+            align-self: flex-end;
+        }
+
+        .msg.agent {
+            align-items: flex-start;
+            align-self: flex-start;
+        }
+
+        .msg-bubble {
+            padding: 9px 13px;
+            border-radius: 14px;
+            font-size: 13.5px;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+
+        .msg.visitor .msg-bubble {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .msg.agent .msg-bubble {
+            background: #f3f4f6;
+            color: #111827;
+            border-bottom-left-radius: 4px;
+        }
+
+        .msg-time {
+            font-size: 10px;
+            color: #9ca3af;
+            margin-top: 3px;
+            padding: 0 3px;
+        }
+
+        /* Typing indicator */
+        .typing {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            padding: 10px 14px;
+            background: #f3f4f6;
+            border-radius: 14px;
+            border-bottom-left-radius: 4px;
+            width: fit-content;
+        }
+
+        .typing span {
+            width: 6px;
+            height: 6px;
+            background: #9ca3af;
+            border-radius: 50%;
+            animation: bounce 1.2s infinite;
+        }
+
+        .typing span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            60%,
+            100% {
+                transform: translateY(0);
+            }
+
+            30% {
+                transform: translateY(-5px);
+            }
+        }
+
+        /* Input area */
+        #input-area {
+            border-top: 1px solid #f3f4f6;
+            padding: 12px 16px;
+            display: none;
+            align-items: flex-end;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        #input-area.visible {
+            display: flex;
+        }
+
+        #msg-input {
+            flex: 1;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 9px 12px;
+            font-size: 13.5px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            max-height: 100px;
+            line-height: 1.4;
+            transition: border-color 0.15s;
+        }
+
+        #msg-input:focus {
+            border-color: #6366f1;
+        }
+
+        #send-btn {
+            width: 36px;
+            height: 36px;
+            flex-shrink: 0;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.2s;
+        }
+
+        #send-btn:hover {
+            opacity: 0.9;
+        }
+
+        #send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #send-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: white;
+        }
+
+        .powered {
+            text-align: center;
+            font-size: 10px;
+            color: #d1d5db;
+            padding: 6px;
+            flex-shrink: 0;
+        }
+
+        .powered a {
+            color: #9ca3af;
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Chat bubble -->
+    <button id="bubble" aria-label="Open chat">
+        <svg class="icon-chat" viewBox="0 0 24 24">
+            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
+        </svg>
+        <svg class="icon-close" viewBox="0 0 24 24">
+            <path
+                d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+        </svg>
+    </button>
+
+    <!-- Chat window -->
+    <div id="chat">
+        <div class="header">
+            <div class="header-top">
+                <h3 id="org-name">Support Chat</h3>
+                <button class="close-btn" id="close-btn" aria-label="Close chat">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path
+                            d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                    </svg>
+                </button>
+            </div>
+            <p><span class="online-dot"></span>We typically reply within a few minutes</p>
+        </div>
+
+        <!-- Step 1: Pre-chat form -->
+        <div id="prechat">
+            <p class="welcome-msg">Hi there! 👋 We'd love to help you. Please introduce yourself to get started.</p>
+            <div>
+                <label for="visitor-name">Your Name *</label>
+                <input type="text" id="visitor-name" placeholder="John Doe" autocomplete="name" />
+            </div>
+            <div>
+                <label for="visitor-email">Email Address *</label>
+                <input type="email" id="visitor-email" placeholder="you@example.com" autocomplete="email" />
+            </div>
+            <div>
+                <label for="first-message">How can we help? *</label>
+                <input type="text" id="first-message" placeholder="Type your message..." />
+            </div>
+            <p class="error" id="form-error"></p>
+            <button class="start-btn" id="start-btn">Start Chat</button>
+        </div>
+
+        <!-- Step 2: Messages -->
+        <div id="messages-wrap">
+            <div id="messages"></div>
+        </div>
+
+        <!-- Input -->
+        <div id="input-area">
+            <textarea id="msg-input" rows="1" placeholder="Type a message..."></textarea>
+            <button id="send-btn" aria-label="Send">
+                <svg viewBox="0 0 24 24">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                </svg>
+            </button>
+        </div>
+
+        <p class="powered">Powered by <a href="https://zentro-desk-crm.vercel.app" target="_blank">Zentro Desk</a></p>
+    </div>
+
+    <script>
+        (function () {
+            // Get token from URL
+            var params = new URLSearchParams(window.location.search);
+            var token = params.get('token');
+            var SUPABASE_URL = 'https://nnfnolsikbasiiggyzqa.supabase.co';
+            var API = SUPABASE_URL + '/functions/v1/widget-chat';
+
+            if (!token) { document.getElementById('bubble').style.display = 'none'; return; }
+
+            // State
+            var conversationId = null;
+            var visitorId = null;
+            var polling = null;
+            var lastMsgTime = null;
+            var isOpen = false;
+
+            // Load org info
+            fetch(API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'get_widget_info', token: token })
+            }).then(r => r.json()).then(function (d) {
+                if (d.org_name) document.getElementById('org-name').textContent = d.org_name;
+            }).catch(function () { });
+
+            // Restore session
+            var saved = sessionStorage.getItem('zentro_widget_' + token);
+            if (saved) {
+                try {
+                    var s = JSON.parse(saved);
+                    conversationId = s.conversationId;
+                    visitorId = s.visitorId;
+                    if (conversationId) showMessages();
+                } catch (e) { }
+            }
+
+            // Toggle open/close
+            var bubble = document.getElementById('bubble');
+            var chat = document.getElementById('chat');
+            var closeBtn = document.getElementById('close-btn');
+
+            function openChat() {
+                isOpen = true;
+                bubble.classList.add('open');
+                chat.classList.add('visible');
+                window.parent.postMessage({ source: 'zentro-widget', type: 'resize', open: true }, '*');
+                if (conversationId) startPolling();
+            }
+
+            function closeChat() {
+                isOpen = false;
+                bubble.classList.remove('open');
+                chat.classList.remove('visible');
+                window.parent.postMessage({ source: 'zentro-widget', type: 'resize', open: false }, '*');
+                stopPolling();
+            }
+
+            bubble.addEventListener('click', function () { isOpen ? closeChat() : openChat(); });
+            closeBtn.addEventListener('click', closeChat);
+
+            // Start chat form submission
+            document.getElementById('start-btn').addEventListener('click', startConversation);
+            document.getElementById('first-message').addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') startConversation();
+            });
+
+            function startConversation() {
+                var name = document.getElementById('visitor-name').value.trim();
+                var email = document.getElementById('visitor-email').value.trim();
+                var msg = document.getElementById('first-message').value.trim();
+                var errEl = document.getElementById('form-error');
+
+                if (!name) { errEl.textContent = 'Please enter your name.'; return; }
+                if (!email || !email.includes('@')) { errEl.textContent = 'Please enter a valid email.'; return; }
+                if (!msg) { errEl.textContent = 'Please type a message.'; return; }
+                errEl.textContent = '';
+
+                var btn = document.getElementById('start-btn');
+                btn.disabled = true;
+                btn.textContent = 'Starting...';
+
+                fetch(API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'create_conversation', token: token, name: name, email: email, message: msg })
+                }).then(r => r.json()).then(function (d) {
+                    if (d.error) { errEl.textContent = d.error; btn.disabled = false; btn.textContent = 'Start Chat'; return; }
+                    conversationId = d.conversation_id;
+                    visitorId = d.visitor_id;
+                    sessionStorage.setItem('zentro_widget_' + token, JSON.stringify({ conversationId: conversationId, visitorId: visitorId }));
+                    showMessages();
+                    appendMessage({ content: msg, is_visitor: true, created_at: new Date().toISOString() });
+                    lastMsgTime = new Date().toISOString();
+                    startPolling();
+                }).catch(function (e) {
+                    errEl.textContent = 'Something went wrong. Please try again.';
+                    btn.disabled = false; btn.textContent = 'Start Chat';
+                });
+            }
+
+            function showMessages() {
+                document.getElementById('prechat').style.display = 'none';
+                document.getElementById('messages-wrap').classList.add('visible');
+                document.getElementById('input-area').classList.add('visible');
+                // Load existing messages
+                fetchMessages(true);
+            }
+
+            function fetchMessages(initial) {
+                if (!conversationId) return;
+                fetch(API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'get_messages', conversation_id: conversationId, visitor_id: visitorId, after: initial ? null : lastMsgTime })
+                }).then(r => r.json()).then(function (d) {
+                    if (!d.messages) return;
+                    d.messages.forEach(function (m) {
+                        // Skip visitor messages on initial load (already shown optimistically)
+                        if (!initial || !m.is_visitor) appendMessage(m);
+                        if (!lastMsgTime || m.created_at > lastMsgTime) lastMsgTime = m.created_at;
+                    });
+                }).catch(function () { });
+            }
+
+            function appendMessage(m) {
+                var wrap = document.getElementById('messages');
+                var div = document.createElement('div');
+                div.className = 'msg ' + (m.is_visitor ? 'visitor' : 'agent');
+                var time = new Date(m.created_at);
+                var timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                div.innerHTML = '<div class="msg-bubble">' + escapeHtml(m.content) + '</div><div class="msg-time">' + timeStr + '</div>';
+                wrap.appendChild(div);
+                var msgsWrap = document.getElementById('messages-wrap');
+                msgsWrap.scrollTop = msgsWrap.scrollHeight;
+            }
+
+            function startPolling() {
+                stopPolling();
+                polling = setInterval(function () { fetchMessages(false); }, 4000);
+            }
+
+            function stopPolling() {
+                if (polling) { clearInterval(polling); polling = null; }
+            }
+
+            // Send message
+            var input = document.getElementById('msg-input');
+            var sendBtn = document.getElementById('send-btn');
+
+            function sendMessage() {
+                var text = input.value.trim();
+                if (!text || !conversationId) return;
+                input.value = '';
+                input.style.height = 'auto';
+                sendBtn.disabled = true;
+
+                // Optimistic
+                appendMessage({ content: text, is_visitor: true, created_at: new Date().toISOString() });
+
+                fetch(API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'send_message', conversation_id: conversationId, visitor_id: visitorId, content: text })
+                }).then(function () {
+                    sendBtn.disabled = false;
+                }).catch(function () {
+                    sendBtn.disabled = false;
+                });
+            }
+
+            sendBtn.addEventListener('click', sendMessage);
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+            });
+            input.addEventListener('input', function () {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+            });
+
+            function escapeHtml(s) {
+                return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+        })();
+    </script>
+</body>
+
+</html>

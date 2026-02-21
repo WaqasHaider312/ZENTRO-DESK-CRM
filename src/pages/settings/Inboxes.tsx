@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import {
   Facebook, Instagram, Globe, MessageSquare,
-  Trash2, Loader2, CheckCircle, X, ExternalLink, Inbox
+  Trash2, Loader2, CheckCircle, X, ExternalLink, Inbox, Copy
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -19,7 +19,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const CHANNEL_CONFIG = [
   { type: 'facebook', label: 'Facebook Messenger', icon: Facebook, color: 'bg-blue-500', description: 'Receive messages from your Facebook Page', available: true },
   { type: 'instagram', label: 'Instagram', icon: Instagram, color: 'bg-gradient-to-br from-purple-500 to-pink-500', description: 'Receive Instagram DMs', available: true },
-  { type: 'widget', label: 'Web Widget', icon: Globe, color: 'bg-violet-500', description: 'Add a live chat widget to your website', available: false, comingSoon: true },
+  { type: 'widget', label: 'Web Widget', icon: Globe, color: 'bg-violet-500', description: 'Add a live chat widget to your website', available: true },
   { type: 'whatsapp', label: 'WhatsApp', icon: MessageSquare, color: 'bg-green-500', description: 'Connect WhatsApp Business (contact us to setup)', available: false, comingSoon: true },
 ]
 
@@ -30,7 +30,7 @@ interface FacebookPage {
   category: string
 }
 
-type ModalType = 'facebook' | 'instagram' | null
+type ModalType = 'facebook' | 'instagram' | 'widget' | null
 
 export default function Inboxes() {
   const { organization } = useAuth()
@@ -66,8 +66,47 @@ export default function Inboxes() {
     finally { setLoading(false) }
   }
 
-  const startConnect = (type: 'facebook' | 'instagram') => {
+  const startConnect = (type: 'facebook' | 'instagram' | 'widget') => {
+    if (type === 'widget') {
+      createWidgetInbox()
+      return
+    }
     setModal(type); setOauthStep('connect'); setPages([]); setSelectedPage(null); setInboxName('')
+  }
+
+  const createWidgetInbox = async () => {
+    if (!organization) return
+    // Check if widget inbox already exists
+    const existing = inboxes.find(i => i.channel_type === 'widget')
+    if (existing) {
+      setModal('widget')
+      return
+    }
+    setConnecting(true)
+    try {
+      const token = crypto.randomUUID()
+      const { error } = await supabase.from('inboxes').insert({
+        organization_id: organization.id,
+        name: 'Web Widget',
+        channel_type: 'widget',
+        widget_token: token,
+        is_active: true,
+      })
+      if (error) throw error
+      toast.success('Widget inbox created!')
+      await fetchInboxes()
+      setModal('widget')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create widget inbox')
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  const copyEmbedCode = (token: string) => {
+    const code = `<script>\n  window.ZentroWidget = { token: '${token}' };\n  (function(d,s){var js=d.createElement(s);js.src='https://zentro-desk-crm.vercel.app/widget.js';d.head.appendChild(js)})(document,'script');\n<\/script>`
+    navigator.clipboard.writeText(code)
+    toast.success('Embed code copied!')
   }
 
   const launchOAuthPopup = (type: 'facebook' | 'instagram') => {
@@ -156,6 +195,11 @@ export default function Inboxes() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="flex items-center gap-1 text-xs text-green-600"><CheckCircle className="w-3.5 h-3.5" />Active</span>
+                        {inbox.channel_type === 'widget' && (
+                          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setModal('widget')}>
+                            <Copy className="w-3 h-3" />Embed Code
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={() => disconnectInbox(inbox.id)}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -200,7 +244,49 @@ export default function Inboxes() {
         </div>
       </div>
 
-      {modal && (
+      {modal === 'widget' && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-xl border border-border w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <h3 className="font-semibold">Web Widget Setup</h3>
+              <button onClick={() => setModal(null)} className="p-1 hover:bg-accent rounded-md"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {(() => {
+                const widgetInbox = inboxes.find(i => i.channel_type === 'widget')
+                const token = widgetInbox?.widget_token
+                const embedCode = token ? `<script>\n  window.ZentroWidget = { token: '${token}' };\n  (function(d,s){var js=d.createElement(s);js.src='https://zentro-desk-crm.vercel.app/widget.js';d.head.appendChild(js)})(document,'script');\n</script>` : ''
+                return (
+                  <>
+                    <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                      <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                      <p className="text-sm text-green-800 font-medium">Your widget is ready!</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium mb-2">Embed Code</p>
+                      <p className="text-xs text-muted-foreground mb-2">Copy and paste this code into your website's HTML, just before the closing <code>&lt;/body&gt;</code> tag. Works on Shopify, WordPress, or any website.</p>
+                      <div className="relative">
+                        <pre className="bg-muted rounded-lg p-3 text-xs overflow-x-auto text-foreground leading-5 whitespace-pre-wrap break-all">{embedCode}</pre>
+                        <Button size="sm" variant="outline" className="absolute top-2 right-2 h-7 gap-1 text-xs" onClick={() => token && copyEmbedCode(token)}>
+                          <Copy className="w-3 h-3" />Copy
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium">Platform guides:</p>
+                      <p className="text-xs text-muted-foreground">• <strong>Shopify:</strong> Online Store → Themes → Edit code → theme.liquid → paste before &lt;/body&gt;</p>
+                      <p className="text-xs text-muted-foreground">• <strong>WordPress:</strong> Appearance → Theme Editor → footer.php → paste before &lt;/body&gt;</p>
+                      <p className="text-xs text-muted-foreground">• <strong>Any site:</strong> Paste in your HTML before the &lt;/body&gt; closing tag</p>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(modal === 'facebook' || modal === 'instagram') && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-background rounded-xl border border-border w-full max-w-md shadow-xl">
             <div className="flex items-center justify-between p-5 border-b border-border">
