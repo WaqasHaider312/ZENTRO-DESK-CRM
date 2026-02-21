@@ -122,11 +122,10 @@ export default function Signup() {
             <div className="flex items-center gap-2 mb-8">
               {(['account', 'organization'] as Step[]).map((s, i) => (
                 <div key={s} className="flex items-center gap-2">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
-                    step === s ? 'bg-primary text-white' :
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${step === s ? 'bg-primary text-white' :
                     (step === 'organization' && s === 'account') ? 'bg-primary/20 text-primary' :
-                    'bg-muted text-muted-foreground'
-                  }`}>
+                      'bg-muted text-muted-foreground'
+                    }`}>
                     {(step === 'organization' && s === 'account') ? '✓' : i + 1}
                   </div>
                   <span className={`text-sm ${step === s ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
