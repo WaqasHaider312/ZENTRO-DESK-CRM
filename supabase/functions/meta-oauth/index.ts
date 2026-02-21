@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
                 })
             })
 
-            const { data: inbox, error } = await supabase.from('inboxes').insert({
+            const { data: inbox, error } = await supabase.from('inboxes').upsert({
                 organization_id,
                 name: inbox_name || page_name,
                 channel_type: 'facebook',
@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
                 fb_page_name: page_name,
                 fb_access_token: page_access_token,
                 is_active: true,
-            }).select().single()
+            }, { onConflict: 'organization_id,fb_page_id,channel_type', ignoreDuplicates: false }).select().single()
 
             if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             return new Response(JSON.stringify({ inbox }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
                 body: JSON.stringify({ subscribed_fields: ['messages', 'messaging_postbacks'], access_token: page_access_token })
             })
 
-            const { data: inbox, error } = await supabase.from('inboxes').insert({
+            const { data: inbox, error } = await supabase.from('inboxes').upsert({
                 organization_id,
                 name: inbox_name || 'Instagram',
                 channel_type: 'instagram',
@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
                 fb_access_token: page_access_token,
                 ig_account_id: igAccountId,
                 is_active: true,
-            }).select().single()
+            }, { onConflict: 'organization_id,fb_page_id,channel_type', ignoreDuplicates: false }).select().single()
 
             if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             return new Response(JSON.stringify({ inbox }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })

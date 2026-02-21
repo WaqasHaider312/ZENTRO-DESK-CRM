@@ -83,17 +83,22 @@ async function processWebhook(body: any) {
         const pageId = entry.id
 
         // Find which inbox this page belongs to
+        // Both FB and Instagram use fb_page_id (entry.id is always the FB page ID)
+        // We distinguish by channel_type to avoid .single() failing on multiple rows
+        const channelType = object === 'page' ? 'facebook' : 'instagram'
         const { data: inbox, error: inboxError } = await supabase
             .from('inboxes')
-            .select('id, organization_id, channel_type, name')
-            .eq(object === 'page' ? 'fb_page_id' : 'ig_account_id', pageId)
+            .select('id, organization_id, channel_type, name, fb_access_token')
+            .eq('fb_page_id', pageId)
+            .eq('channel_type', channelType)
             .eq('is_active', true)
             .single()
 
         if (inboxError || !inbox) {
-            console.log('No inbox found for page:', pageId)
+            console.log(`No ${channelType} inbox found for page:`, pageId, inboxError?.message)
             continue
         }
+        console.log('Found inbox:', inbox.id, inbox.channel_type)
 
         // Handle Facebook Messenger messages
         if (object === 'page') {
