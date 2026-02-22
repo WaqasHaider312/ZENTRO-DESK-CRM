@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
 import AppLayout from '@/components/layout/AppLayout'
+import SettingsLayout from '@/components/layout/SettingsLayout'
 import Conversations from '@/pages/Conversations'
 import Contacts from '@/pages/Contacts'
 import Reports from '@/pages/Reports'
@@ -19,9 +20,7 @@ import NotFound from '@/pages/NotFound'
 import OAuthCallback from '@/pages/OAuthCallback'
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { retry: 1, staleTime: 30_000 },
-  },
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
 })
 
 const Spinner = () => (
@@ -34,20 +33,12 @@ const RootRedirect = () => {
   const { user, organization, loading } = useAuth()
   const navigate = useNavigate()
 
-  console.log('[RootRedirect] loading:', loading, 'user:', !!user, 'org:', !!organization)
-
   useEffect(() => {
-    console.log('[RootRedirect] useEffect — loading:', loading, 'user:', !!user, 'org:', organization?.slug)
     if (loading) return
-
     if (user && organization) {
-      console.log('[RootRedirect] Navigating to:', `/app/${organization.slug}/conversations`)
       navigate(`/app/${organization.slug}/conversations`, { replace: true })
     } else if (!user) {
-      console.log('[RootRedirect] No user, navigating to /login')
       navigate('/login', { replace: true })
-    } else {
-      console.warn('[RootRedirect] User exists but no org yet — waiting...')
     }
   }, [user, organization, loading])
 
@@ -56,7 +47,6 @@ const RootRedirect = () => {
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth()
-  console.log('[ProtectedRoute] loading:', loading, 'user:', !!user)
   if (loading) return <Spinner />
   return user ? <>{children}</> : <Navigate to="/login" replace />
 }
@@ -70,23 +60,23 @@ const AppRoutes = () => (
 
     <Route
       path="/app/:orgSlug"
-      element={
-        <ProtectedRoute>
-          <AppLayout />
-        </ProtectedRoute>
-      }
+      element={<ProtectedRoute><AppLayout /></ProtectedRoute>}
     >
       <Route index element={<Navigate to="conversations" replace />} />
       <Route path="conversations" element={<Conversations />} />
       <Route path="conversations/:conversationId" element={<Conversations />} />
       <Route path="contacts" element={<Contacts />} />
       <Route path="reports" element={<Reports />} />
-      <Route path="settings" element={<Navigate to="settings/general" replace />} />
-      <Route path="settings/general" element={<OrgSettings />} />
-      <Route path="settings/inboxes" element={<Inboxes />} />
-      <Route path="settings/agents" element={<Agents />} />
-      <Route path="settings/canned-responses" element={<CannedResponses />} />
-      <Route path="settings/labels" element={<Labels />} />
+
+      {/* Settings — own layout with sidebar */}
+      <Route path="settings" element={<SettingsLayout />}>
+        <Route index element={<Navigate to="general" replace />} />
+        <Route path="general" element={<OrgSettings />} />
+        <Route path="inboxes" element={<Inboxes />} />
+        <Route path="agents" element={<Agents />} />
+        <Route path="canned-responses" element={<CannedResponses />} />
+        <Route path="labels" element={<Labels />} />
+      </Route>
     </Route>
 
     <Route path="*" element={<NotFound />} />

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConversations, SidebarView } from '@/contexts/ConversationsContext'
 import { cn, getInitials } from '@/lib/utils'
@@ -19,12 +19,13 @@ const VIEWS = [
 ]
 
 const MENU = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app' },
-    { id: 'settings', label: 'Settings', icon: Settings, path: '/app/settings' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '' },
+    { id: 'settings', label: 'Settings', icon: Settings, path: 'settings' },
 ]
 
 export default function TicketSidebar() {
     const navigate = useNavigate()
+    const { orgSlug } = useParams()
     const { profile, signOut, organization } = useAuth()
     const { activeView, setActiveView, counts } = useConversations()
     const [collapsed, setCollapsed] = useState(false)
@@ -108,7 +109,7 @@ export default function TicketSidebar() {
                         return (
                             <button
                                 key={item.id}
-                                onClick={() => navigate(item.path)}
+                                onClick={() => navigate(`/app/${orgSlug}/${item.path}`)}
                                 title={collapsed ? item.label : ''}
                                 className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-foreground hover:bg-gray-100 transition-colors', collapsed && 'justify-center')}
                             >
