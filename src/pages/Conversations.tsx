@@ -11,7 +11,7 @@ function ConversationsLayout() {
   return (
     <div className="flex h-full overflow-hidden">
       {/* Left: Conversation list */}
-      <div className="w-72 flex-shrink-0 border-r border-border flex flex-col">
+      <div className="w-[440px] flex-shrink-0 border-r border-border flex flex-col">
         <ConversationList />
       </div>
 

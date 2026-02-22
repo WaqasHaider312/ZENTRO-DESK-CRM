@@ -222,8 +222,8 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
         if (error) throw error
       }
 
-      if (conversation?.status === 'pending' && !isInternalNote) {
-        await supabase.from('conversations').update({ status: 'open' }).eq('id', selectedId)
+      if ((conversation?.status === 'pending' || conversation?.status === 'in_progress') && !isInternalNote) {
+        // Keep status as-is when replying, don't auto-change
       }
 
       // Replace optimistic message with real one from DB
@@ -240,7 +240,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
     }
   }
 
-  const updateStatus = async (status: 'open' | 'resolved' | 'pending') => {
+  const updateStatus = async (status: 'open' | 'in_progress' | 'pending' | 'resolved') => {
     if (!selectedId || !profile) return
     try {
       await supabase.from('conversations').update({ status }).eq('id', selectedId)
@@ -250,7 +250,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
         conversation_id: selectedId,
         actor_id: profile.id,
         actor_name: profile.full_name,
-        activity_type: status === 'resolved' ? 'resolved' : status === 'open' ? 'reopened' : 'set_pending',
+        activity_type: status === 'resolved' ? 'resolved' : status === 'open' ? 'reopened' : status === 'in_progress' ? 'in_progress' : 'set_pending',
       })
       // Add system message
       await supabase.from('messages').insert({
@@ -259,12 +259,12 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
         sender_type: 'system',
         sender_name: 'System',
         message_type: 'activity',
-        content: `${profile.full_name} marked this conversation as ${status}`,
+        content: `${profile.full_name} marked this ticket as ${status.replace('_', ' ')}`,
         is_private: false,
         is_read: true,
       })
       refresh()
-      toast.success(`Conversation marked as ${status}`)
+      toast.success(`Ticket marked as ${status.replace('_', ' ')}`)
     } catch (err) {
       toast.error('Failed to update status')
     }
@@ -369,17 +369,30 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
             )}
           </div>
 
-          {/* Status toggle */}
-          {isResolved ? (
-            <Button size="sm" variant="outline" className="text-xs h-7 gap-1.5" onClick={() => updateStatus('open')}>
-              Reopen
-            </Button>
-          ) : (
-            <Button size="sm" className="text-xs h-7 gap-1.5 bg-green-600 hover:bg-green-700" onClick={() => updateStatus('resolved')}>
-              <CheckCheck className="w-3 h-3" />
-              Resolve
-            </Button>
-          )}
+          {/* Status dropdown */}
+          {(() => {
+            const statusCfg: Record<string, { label: string; color: string }> = {
+              open: { label: 'Open', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+              in_progress: { label: 'In Progress', color: 'bg-amber-100 text-amber-700 border-amber-200' },
+              pending: { label: 'Pending', color: 'bg-orange-100 text-orange-700 border-orange-200' },
+              resolved: { label: 'Resolved', color: 'bg-green-100 text-green-700 border-green-200' },
+            }
+            const current = statusCfg[conversation.status] || statusCfg.open
+            return (
+              <div className="relative">
+                <select
+                  value={conversation.status}
+                  onChange={e => updateStatus(e.target.value as any)}
+                  className={`text-xs font-semibold px-2 py-1 rounded-md border cursor-pointer outline-none ${current.color}`}
+                >
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="pending">Pending</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </div>
+            )
+          })()}
 
           {/* Info toggle */}
           <Button variant={showInfo ? 'secondary' : 'ghost'} size="sm" className="h-7 w-7 p-0" onClick={onToggleInfo}>

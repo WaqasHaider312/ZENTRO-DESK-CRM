@@ -6,7 +6,7 @@
 export type PlanType = 'trial' | 'starter' | 'pro' | 'enterprise'
 export type MemberRole = 'owner' | 'admin' | 'agent'
 export type ChannelType = 'whatsapp' | 'facebook' | 'instagram' | 'widget' | 'email'
-export type ConversationStatus = 'open' | 'resolved' | 'pending' | 'snoozed'
+export type ConversationStatus = 'open' | 'in_progress' | 'pending' | 'resolved'
 export type SenderType = 'contact' | 'agent' | 'bot' | 'system'
 export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'file' | 'location' | 'template' | 'activity'
 
