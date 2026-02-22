@@ -193,7 +193,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
       const channelType = conversation?.inbox?.channel_type
       const isInternalNote = activeTab === 'note'
 
-      if (!isInternalNote && (channelType === 'facebook' || channelType === 'instagram')) {
+      if (!isInternalNote && (channelType === 'facebook' || channelType === 'instagram' || channelType === 'whatsapp')) {
         const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
