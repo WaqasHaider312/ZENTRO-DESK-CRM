@@ -327,17 +327,18 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
   const channelType = conversation.inbox?.channel_type || 'widget'
   const isResolved = conversation.status === 'resolved'
 
+  const ticketNum = (conversation as any).ticket_number ? `TKT${String((conversation as any).ticket_number).padStart(6, '0')}` : null
+
   return (
-    <div className="flex-1 flex flex-col min-w-0 h-full">
+    <div className="flex-1 flex flex-col min-w-0 h-full bg-white">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-border flex-shrink-0">
+      <div className="flex items-center justify-between px-4 h-14 border-b border-gray-200 flex-shrink-0 bg-white">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold flex-shrink-0">
-            {getInitials(contactName)}
-          </div>
-          <div className="min-w-0">
-            <p className="font-medium text-sm text-foreground truncate">{contactName}</p>
-            <p className="text-xs text-muted-foreground">{CHANNEL_LABELS[channelType]} · {conversation.inbox?.name}</p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-foreground">{ticketNum || contactName}</h2>
+            <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded">
+              {CHANNEL_LABELS[channelType]} · {conversation.inbox?.name}
+            </span>
           </div>
         </div>
 
