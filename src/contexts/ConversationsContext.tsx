@@ -38,14 +38,14 @@ export const ConversationsProvider = ({ children }: { children: ReactNode }) => 
     try {
       const { data: active } = await supabase
         .from('conversations')
-        .select('*, contact:contacts(*), inbox:inboxes(id, name, channel_type), assigned_agent:agent_profiles!assigned_agent_id(id, full_name, avatar_url)')
+        .select('*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id, name, channel_type), assigned_agent:agent_profiles!assigned_agent_id(id, full_name, avatar_url)')
         .eq('organization_id', organization.id)
         .in('status', ['open', 'in_progress', 'pending'])
         .order('updated_at', { ascending: false })
 
       const { data: resolved } = await supabase
         .from('conversations')
-        .select('*, contact:contacts(*), inbox:inboxes(id, name, channel_type), assigned_agent:agent_profiles!assigned_agent_id(id, full_name, avatar_url)')
+        .select('*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id, name, channel_type), assigned_agent:agent_profiles!assigned_agent_id(id, full_name, avatar_url)')
         .eq('organization_id', organization.id)
         .eq('status', 'resolved')
         .order('updated_at', { ascending: false })
@@ -70,14 +70,14 @@ export const ConversationsProvider = ({ children }: { children: ReactNode }) => 
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations', filter: `organization_id=eq.${organization.id}` },
         async (payload) => {
           const { data } = await supabase.from('conversations')
-            .select('*, contact:contacts(*), inbox:inboxes(id,name,channel_type), assigned_agent:agent_profiles!assigned_agent_id(id,full_name,avatar_url)')
+            .select('*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id,name,channel_type), assigned_agent:agent_profiles!assigned_agent_id(id,full_name,avatar_url)')
             .eq('id', payload.new.id).single()
           if (data) setConversations(prev => [data, ...prev])
         })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `organization_id=eq.${organization.id}` },
         async (payload) => {
           const { data } = await supabase.from('conversations')
-            .select('*, contact:contacts(*), inbox:inboxes(id,name,channel_type), assigned_agent:agent_profiles!assigned_agent_id(id,full_name,avatar_url)')
+            .select('*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id,name,channel_type), assigned_agent:agent_profiles!assigned_agent_id(id,full_name,avatar_url)')
             .eq('id', payload.new.id).single()
           if (data) setConversations(prev => prev.map(c => c.id === data.id ? data : c))
         })
@@ -88,15 +88,18 @@ export const ConversationsProvider = ({ children }: { children: ReactNode }) => 
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
 
+  // BUG FIX #8: Use assigned_agent?.id (from join) not raw assigned_agent_id field
+  // The join gives us assigned_agent:{id, full_name, avatar_url}, not the raw FK
+  const getAgentId = (c: Conversation) => (c.assigned_agent as any)?.id || (c as any).assigned_agent_id || null
   const counts = {
     open: conversations.filter(c => c.status === 'open').length,
     in_progress: conversations.filter(c => c.status === 'in_progress').length,
     pending: conversations.filter(c => c.status === 'pending').length,
     resolved: conversations.filter(c => c.status === 'resolved').length,
-    my_open: conversations.filter(c => (c as any).assigned_agent_id === profile?.id && c.status !== 'resolved').length,
-    unassigned: conversations.filter(c => !(c as any).assigned_agent_id && c.status !== 'resolved').length,
-    all_assigned: conversations.filter(c => !!(c as any).assigned_agent_id && c.status !== 'resolved').length,
-    my_resolved_today: conversations.filter(c => c.status === 'resolved' && (c as any).assigned_agent_id === profile?.id && new Date(c.updated_at) >= todayStart).length,
+    my_open: conversations.filter(c => getAgentId(c) === profile?.id && c.status !== 'resolved').length,
+    unassigned: conversations.filter(c => !getAgentId(c) && c.status !== 'resolved').length,
+    all_assigned: conversations.filter(c => !!getAgentId(c) && c.status !== 'resolved').length,
+    my_resolved_today: conversations.filter(c => c.status === 'resolved' && getAgentId(c) === profile?.id && new Date(c.updated_at) >= todayStart).length,
     all_resolved_today: conversations.filter(c => c.status === 'resolved' && new Date(c.updated_at) >= todayStart).length,
     all_tickets: conversations.length,
   }

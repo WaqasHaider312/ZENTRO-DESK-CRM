@@ -165,13 +165,15 @@ export default function Inboxes() {
 
   return (
     <div className="flex-1 flex flex-col">
-      <div className="h-14 border-b border-border flex items-center px-6 gap-3">
-        <Inbox className="w-4 h-4 text-muted-foreground" />
-        <span className="font-semibold">Inboxes</span>
-        {inboxes.length > 0 && <Badge variant="secondary">{inboxes.length}</Badge>}
+      <div className="h-16 border-b border-gray-200 bg-white flex items-center px-8 gap-3 flex-shrink-0">
+        <Inbox className="w-5 h-5 text-gray-400" />
+        <div>
+          <h1 className="font-bold text-gray-900">Inboxes</h1>
+          <p className="text-xs text-gray-500">{inboxes.length} connected inbox{inboxes.length !== 1 ? 'es' : ''} · Facebook, Instagram, Widget</p>
+        </div>
       </div>
 
-      <div className="flex-1 p-6 overflow-y-auto">
+      <div className="flex-1 p-8 overflow-y-auto">
         <div className="max-w-2xl space-y-8">
 
           {inboxes.length > 0 && (

@@ -6,10 +6,7 @@ import { Message, Conversation, AgentProfile } from '@/types'
 import { cn, getInitials, formatTimeAgo } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Send, Paperclip, Info, CheckCheck, Lock, User,
-  ChevronDown, Loader2, Phone, Facebook, Instagram, Globe, Mail, X
-} from 'lucide-react'
+import { Send, Paperclip, Info, Lock, User, ChevronDown, Loader2, X, MessageCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -25,15 +22,31 @@ interface ChatPanelProps {
   showInfo: boolean
 }
 
+// BUG FIX #4: Helper — system message with all required fields
+function makeSystemMsg(conversationId: string, orgId: string, content: string) {
+  return {
+    conversation_id: conversationId,
+    organization_id: orgId,
+    sender_type: 'system' as const,
+    sender_name: 'System',
+    message_type: 'activity' as const,
+    content,
+    is_private: false,
+    is_read: true,
+    is_deleted: false,
+  }
+}
+
 function MessageBubble({ msg, isAgent }: { msg: Message; isAgent: boolean }) {
   if (msg.is_private) {
     return (
-      <div className="flex justify-center my-1">
-        <div className="flex items-start gap-2 max-w-[85%] bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          <Lock className="w-3 h-3 text-amber-500 flex-shrink-0 mt-0.5" />
+      <div className="flex justify-center my-2">
+        <div className="flex items-start gap-2 max-w-[85%] bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <Lock className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-xs font-medium text-amber-700 mb-0.5">{msg.sender_name} (internal note)</p>
-            <p className="text-xs text-amber-800 whitespace-pre-wrap">{msg.content}</p>
+            <p className="text-xs font-semibold text-amber-700 mb-0.5">{msg.sender_name} · Internal Note</p>
+            <p className="text-sm text-amber-800 whitespace-pre-wrap">{msg.content}</p>
+            <p className="text-[10px] text-amber-500 mt-1">{formatTimeAgo(msg.created_at)}</p>
           </div>
         </div>
       </div>
@@ -42,28 +55,29 @@ function MessageBubble({ msg, isAgent }: { msg: Message; isAgent: boolean }) {
 
   if (msg.sender_type === 'system') {
     return (
-      <div className="flex justify-center my-2">
-        <span className="text-xs text-muted-foreground bg-muted px-3 py-1 rounded-full">{msg.content}</span>
+      <div className="flex justify-center my-3">
+        <span className="text-xs text-gray-400 bg-gray-100 px-4 py-1.5 rounded-full">{msg.content}</span>
       </div>
     )
   }
 
   return (
-    <div className={cn('flex gap-2 mb-3', isAgent ? 'flex-row-reverse' : 'flex-row')}>
-      {/* Avatar */}
-      <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-semibold text-primary flex-shrink-0 mt-0.5">
+    <div className={cn('flex gap-2 mb-4', isAgent ? 'flex-row-reverse' : 'flex-row')}>
+      <div className={cn(
+        'w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5',
+        isAgent ? 'bg-primary text-white' : 'bg-gray-200 text-gray-600'
+      )}>
         {getInitials(msg.sender_name || '?')}
       </div>
-
       <div className={cn('flex flex-col max-w-[75%]', isAgent ? 'items-end' : 'items-start')}>
+        <p className="text-[10px] text-gray-400 mb-1 px-1">{msg.sender_name}</p>
         <div className={cn(
-          'px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words',
+          'px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap break-words leading-relaxed',
           isAgent
             ? 'bg-primary text-white rounded-tr-sm'
-            : 'bg-muted text-foreground rounded-tl-sm'
+            : 'bg-gray-100 text-gray-900 rounded-tl-sm'
         )}>
           {msg.content}
-          {/* Attachments */}
           {msg.attachment_urls && msg.attachment_urls.length > 0 && (
             <div className="mt-2 space-y-1">
               {msg.attachment_urls.map((url, i) => (
@@ -75,7 +89,7 @@ function MessageBubble({ msg, isAgent }: { msg: Message; isAgent: boolean }) {
             </div>
           )}
         </div>
-        <span className="text-[10px] text-muted-foreground mt-1 px-1">{formatTimeAgo(msg.created_at)}</span>
+        <span className="text-[10px] text-gray-400 mt-1 px-1">{formatTimeAgo(msg.created_at)}</span>
       </div>
     </div>
   )
@@ -98,26 +112,18 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
 
   // Sync conversation from context
   useEffect(() => {
-    if (selectedId) {
-      const conv = conversations.find(c => c.id === selectedId)
-      if (conv) setConversation(conv)
-    } else {
-      setConversation(null)
-    }
+    setConversation(selectedId ? (conversations.find(c => c.id === selectedId) ?? null) : null)
   }, [selectedId, conversations])
 
-  // Load messages when conversation changes
+  // Load messages + subscribe when ticket selected
   useEffect(() => {
     if (!selectedId) { setMessages([]); return }
     loadMessages(selectedId)
     markAsRead(selectedId)
     subscribeToMessages(selectedId)
-    return () => {
-      if (channelRef.current) supabase.removeChannel(channelRef.current)
-    }
+    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current) }
   }, [selectedId])
 
-  // Scroll to bottom when messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -141,17 +147,15 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
   }
 
   const markAsRead = async (convId: string) => {
-    await supabase
-      .from('conversations')
-      .update({ unread_count: 0 })
-      .eq('id', convId)
+    await supabase.from('conversations').update({ unread_count: 0 }).eq('id', convId)
   }
 
   const subscribeToMessages = (convId: string) => {
     if (channelRef.current) supabase.removeChannel(channelRef.current)
     const channel = supabase
       .channel(`messages-${convId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convId}` },
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convId}` },
         (payload) => {
           setMessages(prev => {
             if (prev.find(m => m.id === payload.new.id)) return prev
@@ -167,9 +171,11 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
     const text = activeTab === 'reply' ? replyText : noteText
     if (!text.trim() || !selectedId || !profile || !organization) return
 
-    // Optimistic update — show message immediately
-    const optimisticMsg: Message = {
-      id: `optimistic-${Date.now()}`,
+    const isNote = activeTab === 'note'
+
+    // Optimistic update
+    const optimistic: Message = {
+      id: `opt-${Date.now()}`,
       conversation_id: selectedId,
       organization_id: organization.id,
       sender_type: 'agent',
@@ -177,26 +183,40 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
       sender_name: profile.full_name,
       message_type: 'text',
       content: text.trim(),
-      is_private: activeTab === 'note',
+      is_private: isNote,
       is_read: true,
       is_deleted: false,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      attachment_urls: undefined,
-      channel_message_id: undefined,
     }
-    setMessages(prev => [...prev, optimisticMsg])
-    activeTab === 'reply' ? setReplyText('') : setNoteText('')
+    setMessages(prev => [...prev, optimistic])
+    isNote ? setNoteText('') : setReplyText('')
 
     setSending(true)
     try {
-      const channelType = conversation?.inbox?.channel_type
-      const isInternalNote = activeTab === 'note'
-
-      if (!isInternalNote && (channelType === 'facebook' || channelType === 'instagram' || channelType === 'whatsapp')) {
+      if (isNote) {
+        // Internal notes — always direct DB insert
+        const { error } = await supabase.from('messages').insert({
+          conversation_id: selectedId,
+          organization_id: organization.id,
+          sender_type: 'agent',
+          sender_id: profile.id,
+          sender_name: profile.full_name,
+          message_type: 'text',
+          content: text.trim(),
+          is_private: true,
+          is_read: true,
+          is_deleted: false,  // BUG FIX #4: was missing
+        })
+        if (error) throw error
+      } else {
+        // BUG FIX #3: ALL channels (including widget) go through edge function
+        // so the edge function can update latest_message + latest_message_sender='agent'
         const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-message`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          },
           body: JSON.stringify({
             conversation_id: selectedId,
             message_text: text.trim(),
@@ -207,33 +227,14 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
         })
         const data = await res.json()
         if (data.error) throw new Error(data.error)
-      } else {
-        const { error } = await supabase.from('messages').insert({
-          conversation_id: selectedId,
-          organization_id: organization.id,
-          sender_type: 'agent',
-          sender_id: profile.id,
-          sender_name: profile.full_name,
-          message_type: 'text',
-          content: text.trim(),
-          is_private: isInternalNote,
-          is_read: true,
-        })
-        if (error) throw error
       }
 
-      if ((conversation?.status === 'pending' || conversation?.status === 'in_progress') && !isInternalNote) {
-        // Keep status as-is when replying, don't auto-change
-      }
-
-      // Replace optimistic message with real one from DB
       await loadMessages(selectedId)
       refresh()
     } catch (err: any) {
-      // Remove optimistic message on failure
-      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
-      activeTab === 'reply' ? setReplyText(text) : setNoteText(text)
-      toast.error(err.message || 'Failed to send message')
+      setMessages(prev => prev.filter(m => m.id !== optimistic.id))
+      isNote ? setNoteText(text) : setReplyText(text)
+      toast.error(err.message || 'Failed to send')
       console.error(err)
     } finally {
       setSending(false)
@@ -241,62 +242,45 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
   }
 
   const updateStatus = async (status: 'open' | 'in_progress' | 'pending' | 'resolved') => {
-    if (!selectedId || !profile) return
+    if (!selectedId || !profile || !organization) return
     try {
-      await supabase.from('conversations').update({ status }).eq('id', selectedId)
-      // Log activity
-      await supabase.from('activities').insert({
-        organization_id: organization!.id,
-        conversation_id: selectedId,
-        actor_id: profile.id,
-        actor_name: profile.full_name,
-        activity_type: status === 'resolved' ? 'resolved' : status === 'open' ? 'reopened' : status === 'in_progress' ? 'in_progress' : 'set_pending',
-      })
-      // Add system message
-      await supabase.from('messages').insert({
-        conversation_id: selectedId,
-        organization_id: organization!.id,
-        sender_type: 'system',
-        sender_name: 'System',
-        message_type: 'activity',
-        content: `${profile.full_name} marked this ticket as ${status.replace('_', ' ')}`,
-        is_private: false,
-        is_read: true,
-      })
+      await supabase.from('conversations').update({ status, updated_at: new Date().toISOString() }).eq('id', selectedId)
+      await supabase.from('messages').insert(
+        makeSystemMsg(selectedId, organization.id, `${profile.full_name} changed status to ${status.replace('_', ' ')}`)
+      )
       refresh()
-      toast.success(`Ticket marked as ${status.replace('_', ' ')}`)
-    } catch (err) {
+      toast.success(`Status → ${status.replace('_', ' ')}`)
+    } catch {
       toast.error('Failed to update status')
     }
   }
 
   const loadAgents = async () => {
     if (!organization) return
+    // Already org-scoped correctly
     const { data } = await supabase
       .from('agent_profiles')
-      .select('id, full_name, email, avatar_url, role, is_active, availability, organization_id, created_at, updated_at')
+      .select('id, full_name, email, role, is_active, availability, organization_id, created_at, updated_at, avatar_url')
       .eq('organization_id', organization.id)
       .eq('is_active', true)
-    setAgents(data || [])
+      .order('full_name')
+    setAgents((data as AgentProfile[]) || [])
   }
 
-  const assignAgent = async (agentId: string) => {
-    if (!selectedId) return
+  const assignAgent = async (agentId: string | null) => {
+    if (!selectedId || !organization || !profile) return
     const agent = agents.find(a => a.id === agentId)
-    await supabase.from('conversations').update({ assigned_agent_id: agentId }).eq('id', selectedId)
-    await supabase.from('messages').insert({
-      conversation_id: selectedId,
-      organization_id: organization!.id,
-      sender_type: 'system',
-      sender_name: 'System',
-      message_type: 'activity',
-      content: `${profile?.full_name} assigned this conversation to ${agent?.full_name}`,
-      is_private: false,
-      is_read: true,
-    })
+    await supabase.from('conversations').update({ assigned_agent_id: agentId, updated_at: new Date().toISOString() }).eq('id', selectedId)
+    await supabase.from('messages').insert(
+      makeSystemMsg(selectedId, organization.id,
+        agentId == null
+          ? `${profile.full_name} unassigned this ticket`
+          : `${profile.full_name} assigned this ticket to ${agent?.full_name}`
+      )
+    )
     setShowAssign(false)
     refresh()
-    toast.success(`Assigned to ${agent?.full_name}`)
+    toast.success(agentId == null ? 'Ticket unassigned' : `Assigned to ${agent?.full_name}`)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -309,15 +293,13 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
   // Empty state
   if (!selectedId || !conversation) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-muted/10">
+      <div className="flex-1 flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
+          <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <MessageCircle className="w-8 h-8 text-gray-300" />
           </div>
-          <p className="font-medium text-foreground">No conversation selected</p>
-          <p className="text-sm text-muted-foreground mt-1">Choose a conversation from the list</p>
+          <p className="font-semibold text-gray-600">No ticket selected</p>
+          <p className="text-sm text-gray-400 mt-1">Choose a ticket from the list</p>
         </div>
       </div>
     )
@@ -326,41 +308,68 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
   const contactName = conversation.contact?.name || conversation.contact?.phone || 'Unknown'
   const channelType = conversation.inbox?.channel_type || 'widget'
   const isResolved = conversation.status === 'resolved'
+  const ticketNum = (conversation as any).ticket_number
+    ? `TKT${String((conversation as any).ticket_number).padStart(6, '0')}`
+    : null
+  const assignedAgent = conversation.assigned_agent as any
 
-  const ticketNum = (conversation as any).ticket_number ? `TKT${String((conversation as any).ticket_number).padStart(6, '0')}` : null
+  const statusCfg: Record<string, { label: string; cls: string }> = {
+    open: { label: 'Open', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+    in_progress: { label: 'In Progress', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+    pending: { label: 'Pending', cls: 'bg-orange-100 text-orange-700 border-orange-200' },
+    resolved: { label: 'Resolved', cls: 'bg-green-100 text-green-700 border-green-200' },
+  }
+  const currentStatus = statusCfg[conversation.status] || statusCfg.open
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 h-full bg-white">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-gray-200 flex-shrink-0 bg-white">
+    <div className="flex-1 flex flex-col min-w-0 h-full bg-white overflow-hidden">
+      {/* ── Header ──────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-5 h-14 border-b border-gray-200 flex-shrink-0 bg-white">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-foreground">{ticketNum || contactName}</h2>
-            <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded">
-              {CHANNEL_LABELS[channelType]} · {conversation.inbox?.name}
-            </span>
-          </div>
+          <h2 className="text-lg font-bold text-gray-900">{ticketNum || contactName}</h2>
+          <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-md font-medium">
+            {CHANNEL_LABELS[channelType]} · {conversation.inbox?.name}
+          </span>
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Assign */}
+          {/* Assign dropdown */}
           <div className="relative">
-            <Button variant="outline" size="sm" className="text-xs gap-1.5 h-7"
-              onClick={() => { setShowAssign(!showAssign); loadAgents() }}>
-              <User className="w-3 h-3" />
-              {(conversation.assigned_agent as any)?.full_name || 'Assign'}
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs gap-1.5 h-8 font-medium"
+              onClick={() => { setShowAssign(!showAssign); if (!showAssign) loadAgents() }}
+            >
+              <User className="w-3.5 h-3.5" />
+              {assignedAgent?.full_name || 'Assign'}
               <ChevronDown className="w-3 h-3" />
             </Button>
             {showAssign && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-popover border border-border rounded-lg shadow-lg z-50 py-1">
-                <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
-                  <span className="text-xs font-medium">Assign to</span>
-                  <button onClick={() => setShowAssign(false)}><X className="w-3 h-3" /></button>
+              <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1.5 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+                  <span className="text-xs font-bold text-gray-600">Assign to</span>
+                  <button onClick={() => setShowAssign(false)} className="p-0.5 hover:bg-gray-100 rounded">
+                    <X className="w-3.5 h-3.5 text-gray-400" />
+                  </button>
                 </div>
+                <button
+                  onClick={() => assignAgent(null)}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-500 flex items-center gap-2"
+                >
+                  <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px]">–</div>
+                  Unassign
+                </button>
                 {agents.map(agent => (
-                  <button key={agent.id} onClick={() => assignAgent(agent.id)}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-semibold text-primary">
+                  <button
+                    key={agent.id}
+                    onClick={() => assignAgent(agent.id)}
+                    className={cn(
+                      'w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 transition-colors',
+                      assignedAgent?.id === agent.id && 'bg-primary/5 text-primary font-semibold'
+                    )}
+                  >
+                    <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0">
                       {getInitials(agent.full_name)}
                     </div>
                     <span className="truncate">{agent.full_name}</span>
@@ -370,48 +379,43 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
             )}
           </div>
 
-          {/* Status dropdown */}
-          {(() => {
-            const statusCfg: Record<string, { label: string; color: string }> = {
-              open: { label: 'Open', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-              in_progress: { label: 'In Progress', color: 'bg-amber-100 text-amber-700 border-amber-200' },
-              pending: { label: 'Pending', color: 'bg-orange-100 text-orange-700 border-orange-200' },
-              resolved: { label: 'Resolved', color: 'bg-green-100 text-green-700 border-green-200' },
-            }
-            const current = statusCfg[conversation.status] || statusCfg.open
-            return (
-              <div className="relative">
-                <select
-                  value={conversation.status}
-                  onChange={e => updateStatus(e.target.value as any)}
-                  className={`text-xs font-semibold px-2 py-1 rounded-md border cursor-pointer outline-none ${current.color}`}
-                >
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="pending">Pending</option>
-                  <option value="resolved">Resolved</option>
-                </select>
-              </div>
-            )
-          })()}
+          {/* Status selector */}
+          <select
+            value={conversation.status}
+            onChange={e => updateStatus(e.target.value as any)}
+            className={cn(
+              'text-xs font-bold px-3 py-1.5 rounded-lg border-2 cursor-pointer outline-none appearance-none',
+              currentStatus.cls
+            )}
+          >
+            <option value="open">Open</option>
+            <option value="in_progress">In Progress</option>
+            <option value="pending">Pending</option>
+            <option value="resolved">Resolved</option>
+          </select>
 
           {/* Info toggle */}
-          <Button variant={showInfo ? 'secondary' : 'ghost'} size="sm" className="h-7 w-7 p-0" onClick={onToggleInfo}>
+          <Button
+            variant={showInfo ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={onToggleInfo}
+          >
             <Info className="w-4 h-4" />
           </Button>
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      {/* ── Messages ───────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto px-5 py-5 bg-gray-50">
         {loadingMessages ? (
           <div className="flex justify-center py-8">
-            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <p className="text-sm text-muted-foreground">No messages yet</p>
-            <p className="text-xs text-muted-foreground mt-1">Send the first message below</p>
+            <p className="text-sm text-gray-400">No messages yet</p>
+            <p className="text-xs text-gray-300 mt-1">Send the first message below</p>
           </div>
         ) : (
           messages.map(msg => (
@@ -421,68 +425,93 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Reply box */}
-      {!isResolved && (
-        <div className="border-t border-border flex-shrink-0">
+      {/* ── Reply Box ──────────────────────────────────────────── */}
+      {isResolved ? (
+        <div className="border-t border-gray-200 p-4 text-center bg-white flex-shrink-0">
+          <p className="text-sm text-gray-500 mb-2">This ticket is resolved.</p>
+          <Button variant="outline" size="sm" onClick={() => updateStatus('open')}>
+            Reopen Ticket
+          </Button>
+        </div>
+      ) : (
+        <div className="border-t border-gray-200 bg-white flex-shrink-0">
           {/* Tabs */}
-          <div className="flex border-b border-border">
+          <div className="flex border-b border-gray-100 px-1">
             <button
               onClick={() => setActiveTab('reply')}
-              className={cn('px-4 py-2 text-xs font-medium border-b-2 transition-colors',
-                activeTab === 'reply' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
-              )}>
+              className={cn(
+                'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors',
+                activeTab === 'reply'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              )}
+            >
               Reply
             </button>
             <button
               onClick={() => setActiveTab('note')}
-              className={cn('px-4 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5',
-                activeTab === 'note' ? 'border-amber-500 text-amber-600' : 'border-transparent text-muted-foreground hover:text-foreground'
-              )}>
+              className={cn(
+                'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-1.5',
+                activeTab === 'note'
+                  ? 'border-amber-500 text-amber-600'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              )}
+            >
               <Lock className="w-3 h-3" />
               Internal Note
             </button>
           </div>
 
-          <div className="p-3">
-            <Textarea
-              placeholder={activeTab === 'reply' ? 'Type a reply... (Ctrl+Enter to send)' : 'Add an internal note... (only agents can see this)'}
-              value={activeTab === 'reply' ? replyText : noteText}
-              onChange={e => activeTab === 'reply' ? setReplyText(e.target.value) : setNoteText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className={cn(
-                'min-h-[80px] max-h-[160px] text-sm border-0 bg-transparent focus-visible:ring-0 p-0 resize-none',
-                activeTab === 'note' && 'placeholder:text-amber-400/60'
-              )}
-            />
-            <div className="flex items-center justify-between mt-2">
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground">
-                  <Paperclip className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Ctrl+Enter</span>
-                <Button
-                  size="sm"
-                  className={cn('h-7 gap-1.5 text-xs', activeTab === 'note' && 'bg-amber-500 hover:bg-amber-600')}
-                  onClick={sendMessage}
-                  disabled={sending || !(activeTab === 'reply' ? replyText.trim() : noteText.trim())}
-                >
-                  {sending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                  {activeTab === 'reply' ? 'Send' : 'Add Note'}
-                </Button>
-              </div>
+          <div className={cn('p-4', activeTab === 'note' && 'bg-amber-50/50')}>
+            <div className="flex items-end gap-3">
+              <Button variant="ghost" size="sm" className="h-9 w-9 p-0 flex-shrink-0 text-gray-400 hover:text-gray-600 rounded-full">
+                <Paperclip className="w-4 h-4" />
+              </Button>
+              <Textarea
+                placeholder={
+                  activeTab === 'reply'
+                    ? 'Type message, paste screenshot (Ctrl+V), or drag & drop files... (Ctrl+Enter to send)'
+                    : 'Add an internal note... (only agents can see this)'
+                }
+                value={activeTab === 'reply' ? replyText : noteText}
+                onChange={e => activeTab === 'reply' ? setReplyText(e.target.value) : setNoteText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                rows={1}
+                className={cn(
+                  'flex-1 resize-none text-sm border-0 bg-transparent focus-visible:ring-0 p-0 min-h-[40px] max-h-[160px]',
+                  activeTab === 'note' && 'placeholder:text-amber-400/70'
+                )}
+                style={{ height: 'auto' }}
+                onInput={(e) => {
+                  const t = e.target as HTMLTextAreaElement
+                  t.style.height = 'auto'
+                  t.style.height = Math.min(t.scrollHeight, 160) + 'px'
+                }}
+              />
+              <Button
+                size="sm"
+                className={cn(
+                  'h-9 px-5 rounded-lg font-semibold flex-shrink-0',
+                  activeTab === 'note' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-primary hover:bg-primary/90'
+                )}
+                onClick={sendMessage}
+                disabled={sending || !(activeTab === 'reply' ? replyText.trim() : noteText.trim())}
+              >
+                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                  activeTab === 'reply' ? 'Send' : 'Add Note'
+                )}
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between mt-2 px-1">
+              <span className="text-[11px] text-gray-400">
+                {activeTab === 'note' ? '🔒 Only visible to agents' : 'Use / for quick replies • Ctrl+Enter to send'}
+              </span>
+              <span className="text-[11px] text-gray-400">
+                {(activeTab === 'reply' ? replyText : noteText).length}/1000
+              </span>
             </div>
           </div>
-        </div>
-      )}
-
-      {isResolved && (
-        <div className="border-t border-border p-4 text-center">
-          <p className="text-sm text-muted-foreground">This conversation is resolved.</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={() => updateStatus('open')}>
-            Reopen Conversation
-          </Button>
         </div>
       )}
     </div>

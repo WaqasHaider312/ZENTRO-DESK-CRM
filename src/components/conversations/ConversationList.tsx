@@ -103,7 +103,7 @@ function TicketCard({ conv, isSelected, onClick, isChecked, onCheck }: {
 
 export default function ConversationList() {
   const { conversations, selectedId, setSelectedId, activeView, activeFilter, setActiveFilter, counts, loading, refresh } = useConversations()
-  const { profile } = useAuth()
+  const { profile, organization } = useAuth()
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [sortBy, setSortBy] = useState<SortType>('newest')
@@ -115,19 +115,28 @@ export default function ConversationList() {
   const [displayCount, setDisplayCount] = useState(20)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { fetchAgents() }, [])
+  useEffect(() => { fetchAgents() }, [organization?.id])
   useEffect(() => { setDisplayCount(20); setSelected(new Set()) }, [activeView, activeFilter, search, sortBy])
 
   const fetchAgents = async () => {
-    const { data } = await supabase.from('agent_profiles').select('id, full_name').order('full_name')
+    if (!organization) return
+    // BUG FIX: scope agents to current organization only
+    const { data } = await supabase
+      .from('agent_profiles')
+      .select('id, full_name')
+      .eq('organization_id', organization.id)
+      .eq('is_active', true)
+      .order('full_name')
     setAgents(data || [])
   }
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
 
   // Filter by view
+  // BUG FIX: Use assigned_agent?.id (from join) OR raw assigned_agent_id — both for safety
+  const getAgentId = (conv: Conversation) => (conv.assigned_agent as any)?.id || (conv as any).assigned_agent_id || null
   const viewFiltered = conversations.filter(conv => {
-    const agentId = (conv as any).assigned_agent_id
+    const agentId = getAgentId(conv)
     switch (activeView) {
       case 'my_open': return agentId === profile?.id && conv.status !== 'resolved'
       case 'unassigned': return !agentId && conv.status !== 'resolved'
@@ -207,8 +216,15 @@ export default function ConversationList() {
       for (const id of Array.from(selected)) {
         await supabase.from('conversations').update({ status: 'resolved', updated_at: new Date().toISOString() }).eq('id', id)
         await supabase.from('messages').insert({
-          conversation_id: id, organization_id: conversations.find(c => c.id === id)?.organization_id,
-          sender_type: 'system', message_type: 'text', content: `${profile?.full_name} marked this ticket as resolved`, is_deleted: false,
+          conversation_id: id,
+          organization_id: conversations.find(c => c.id === id)?.organization_id,
+          sender_type: 'system',
+          sender_name: 'System',
+          message_type: 'activity',
+          content: `${profile?.full_name} marked this ticket as resolved`,
+          is_private: false,
+          is_read: true,
+          is_deleted: false,
         })
       }
       toast.success(`${selected.size} tickets resolved`)

@@ -5,6 +5,40 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// BUG FIX #5: Helper — always insert messages with ALL required fields
+async function insertAgentMessage(supabase: any, params: {
+    conversation_id: string
+    organization_id: string
+    agent_id: string
+    agent_name: string
+    message_text: string
+    channel_message_id?: string
+}) {
+    return supabase.from('messages').insert({
+        conversation_id: params.conversation_id,
+        organization_id: params.organization_id,
+        sender_type: 'agent',
+        sender_id: params.agent_id,
+        sender_name: params.agent_name,
+        message_type: 'text',
+        content: params.message_text,
+        channel_message_id: params.channel_message_id || null,
+        is_read: true,
+        is_private: false,
+        is_deleted: false,  // BUG FIX #6: was missing
+    })
+}
+
+// BUG FIX #5: Helper — update conversation after agent sends
+async function updateConversation(supabase: any, conversation_id: string, message_text: string) {
+    return supabase.from('conversations').update({
+        latest_message: message_text,
+        latest_message_at: new Date().toISOString(),
+        latest_message_sender: 'agent',  // BUG FIX #5: was agent_name (person's name) — must be 'agent'
+        unread_count: 0,
+    }).eq('id', conversation_id)
+}
+
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -25,7 +59,9 @@ Deno.serve(async (req) => {
 
         if (convError || !conv) {
             console.error('Conversation not found:', convError)
-            return new Response(JSON.stringify({ error: 'Conversation not found' }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            return new Response(JSON.stringify({ error: 'Conversation not found' }), {
+                status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            })
         }
 
         const inbox = conv.inbox
@@ -37,27 +73,13 @@ Deno.serve(async (req) => {
         // ── WhatsApp ───────────────────────────────────────────────────
         if (channelType === 'whatsapp') {
             const waId = contact.wa_id
-
-            if (!waId) {
-                return new Response(JSON.stringify({ error: 'No WhatsApp ID on contact' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-            }
-            if (!inbox.wa_phone_number_id || !inbox.wa_access_token) {
-                return new Response(JSON.stringify({ error: 'WhatsApp inbox missing phone_number_id or access_token' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-            }
+            if (!waId) return new Response(JSON.stringify({ error: 'No WhatsApp ID on contact' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            if (!inbox.wa_phone_number_id || !inbox.wa_access_token) return new Response(JSON.stringify({ error: 'WhatsApp inbox missing credentials' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
             const waRes = await fetch(`https://graph.facebook.com/v19.0/${inbox.wa_phone_number_id}/messages`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${inbox.wa_access_token}`,
-                },
-                body: JSON.stringify({
-                    messaging_product: 'whatsapp',
-                    recipient_type: 'individual',
-                    to: waId,
-                    type: 'text',
-                    text: { body: message_text },
-                }),
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${inbox.wa_access_token}` },
+                body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: waId, type: 'text', text: { body: message_text } }),
             })
 
             const waData = await waRes.json()
@@ -70,24 +92,8 @@ Deno.serve(async (req) => {
 
             const messageId = waData.messages?.[0]?.id
 
-            await supabase.from('messages').insert({
-                conversation_id,
-                organization_id,
-                sender_type: 'agent',
-                sender_id: agent_id,
-                sender_name: agent_name,
-                message_type: 'text',
-                content: message_text,
-                channel_message_id: messageId,
-                is_read: true,
-                is_private: false,
-            })
-
-            await supabase.from('conversations').update({
-                latest_message: message_text,
-                latest_message_at: new Date().toISOString(),
-                latest_message_sender: agent_name,
-            }).eq('id', conversation_id)
+            await insertAgentMessage(supabase, { conversation_id, organization_id, agent_id, agent_name, message_text, channel_message_id: messageId })
+            await updateConversation(supabase, conversation_id, message_text)
 
             return new Response(JSON.stringify({ success: true, message_id: messageId }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
@@ -95,22 +101,13 @@ Deno.serve(async (req) => {
         // ── Facebook & Instagram ───────────────────────────────────────
         if (channelType === 'facebook' || channelType === 'instagram') {
             const recipientId = channelType === 'facebook' ? contact.fb_psid : contact.ig_id
-
-            if (!recipientId) {
-                return new Response(JSON.stringify({ error: 'No recipient ID on contact' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-            }
-            if (!inbox.fb_access_token) {
-                return new Response(JSON.stringify({ error: 'No access token on inbox' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-            }
+            if (!recipientId) return new Response(JSON.stringify({ error: 'No recipient ID on contact' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            if (!inbox.fb_access_token) return new Response(JSON.stringify({ error: 'No access token on inbox' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
             const fbRes = await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${inbox.fb_access_token}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    recipient: { id: recipientId },
-                    message: { text: message_text },
-                    messaging_type: 'RESPONSE',
-                }),
+                body: JSON.stringify({ recipient: { id: recipientId }, message: { text: message_text }, messaging_type: 'RESPONSE' }),
             })
 
             const fbData = await fbRes.json()
@@ -121,46 +118,15 @@ Deno.serve(async (req) => {
                 return new Response(JSON.stringify({ error: fbData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             }
 
-            await supabase.from('messages').insert({
-                conversation_id,
-                organization_id,
-                sender_type: 'agent',
-                sender_id: agent_id,
-                sender_name: agent_name,
-                message_type: 'text',
-                content: message_text,
-                channel_message_id: fbData.message_id,
-                is_read: true,
-                is_private: false,
-            })
-
-            await supabase.from('conversations').update({
-                latest_message: message_text,
-                latest_message_at: new Date().toISOString(),
-                latest_message_sender: agent_name,
-            }).eq('id', conversation_id)
+            await insertAgentMessage(supabase, { conversation_id, organization_id, agent_id, agent_name, message_text, channel_message_id: fbData.message_id })
+            await updateConversation(supabase, conversation_id, message_text)
 
             return new Response(JSON.stringify({ success: true, message_id: fbData.message_id }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
 
-        // ── Widget & other channels ────────────────────────────────────
-        await supabase.from('messages').insert({
-            conversation_id,
-            organization_id,
-            sender_type: 'agent',
-            sender_id: agent_id,
-            sender_name: agent_name,
-            message_type: 'text',
-            content: message_text,
-            is_read: true,
-            is_private: false,
-        })
-
-        await supabase.from('conversations').update({
-            latest_message: message_text,
-            latest_message_at: new Date().toISOString(),
-            latest_message_sender: agent_name,
-        }).eq('id', conversation_id)
+        // ── Widget & Email (no external API call needed) ────────────────
+        await insertAgentMessage(supabase, { conversation_id, organization_id, agent_id, agent_name, message_text })
+        await updateConversation(supabase, conversation_id, message_text)
 
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
