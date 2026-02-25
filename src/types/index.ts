@@ -9,7 +9,7 @@ export type ChannelType = 'whatsapp' | 'facebook' | 'instagram' | 'widget' | 'em
 export type ConversationStatus = 'open' | 'in_progress' | 'pending' | 'resolved'
 export type SenderType = 'contact' | 'agent' | 'bot' | 'system' | 'ai'
 export type KnowledgeBaseStatus = 'processing' | 'ready' | 'failed'
-export type KnowledgeBaseType = 'pdf' | 'url'
+export type KnowledgeBaseType = 'docx' | 'url'
 export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'file' | 'location' | 'template' | 'activity'
 
 export interface Organization {

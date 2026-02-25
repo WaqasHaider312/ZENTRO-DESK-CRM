@@ -85,8 +85,8 @@ export default function AISettings() {
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file || !organization) return
-        if (!file.name.toLowerCase().endsWith('.pdf')) {
-            toast.error('Only PDF files are supported')
+        if (!file.name.toLowerCase().endsWith('.docx')) {
+            toast.error('Only Word (.docx) files are supported')
             return
         }
         if (file.size > 10 * 1024 * 1024) {
@@ -101,7 +101,7 @@ export default function AISettings() {
                 .from('knowledge_base_sources')
                 .insert({
                     organization_id: organization.id,
-                    type: 'pdf',
+                    type: 'docx',
                     name: file.name,
                     status: 'processing',
                 })
@@ -110,7 +110,7 @@ export default function AISettings() {
 
             if (insertErr || !source) throw new Error(insertErr?.message || 'Failed to create source')
 
-            // Upload PDF to Storage
+            // Upload Word Doc to Storage
             const filePath = `${organization.id}/${source.id}.pdf`
             const { error: uploadErr } = await supabase.storage
                 .from('knowledge-base')
@@ -342,7 +342,7 @@ export default function AISettings() {
                             )}
                         </div>
                         <p className="text-sm text-gray-500 mb-4">
-                            Upload PDFs or add URLs. AI will answer customer questions using this content only.
+                            Upload Word Docs or add URLs. AI will answer customer questions using this content only.
                         </p>
 
                         {/* Source list */}
@@ -375,7 +375,7 @@ export default function AISettings() {
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".pdf"
+                                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                                 className="hidden"
                                 onChange={handleFileUpload}
                             />
@@ -386,7 +386,7 @@ export default function AISettings() {
                                 disabled={uploadingPdf}
                             >
                                 {uploadingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                                Upload PDF
+                                Upload Word Doc
                             </Button>
                             <Button
                                 variant="outline"
@@ -399,7 +399,7 @@ export default function AISettings() {
                         </div>
 
                         <p className="text-xs text-gray-400 mt-2 text-center">
-                            Max 10MB per PDF · URLs must be publicly accessible · Supported: FAQ pages, help docs, policies
+                            Max 10MB per .docx · URLs must be publicly accessible · Word docs & FAQ pages work best
                         </p>
                     </div>
 
@@ -481,11 +481,11 @@ function SourceCard({ source, isProcessing, onDelete, onRetry }: {
         )}>
             <div className={cn(
                 'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0',
-                source.type === 'pdf' ? 'bg-red-100' : 'bg-blue-100'
+                source.type === 'docx' ? 'bg-blue-100' : 'bg-green-100'
             )}>
-                {source.type === 'pdf'
-                    ? <FileText className="w-4 h-4 text-red-600" />
-                    : <Globe className="w-4 h-4 text-blue-600" />
+                {source.type === 'docx'
+                    ? <FileText className="w-4 h-4 text-blue-600" />
+                    : <Globe className="w-4 h-4 text-green-600" />
                 }
             </div>
 
