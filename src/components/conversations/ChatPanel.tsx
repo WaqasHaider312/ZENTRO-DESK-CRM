@@ -6,7 +6,7 @@ import { Message, Conversation, AgentProfile } from '@/types'
 import { cn, getInitials, formatTimeAgo } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Send, Paperclip, Info, Lock, User, ChevronDown, Loader2, X, MessageCircle } from 'lucide-react'
+import { Send, Paperclip, Info, Lock, User, ChevronDown, Loader2, X, MessageCircle, Sparkles, Bot } from 'lucide-react'
 import { toast } from 'sonner'
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -57,6 +57,26 @@ function MessageBubble({ msg, isAgent }: { msg: Message; isAgent: boolean }) {
     return (
       <div className="flex justify-center my-3">
         <span className="text-xs text-gray-400 bg-gray-100 px-4 py-1.5 rounded-full">{msg.content}</span>
+      </div>
+    )
+  }
+
+  // AI message — special purple bubble
+  if (msg.sender_type === 'ai') {
+    return (
+      <div className="flex gap-2 mb-4 flex-row">
+        <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+          <Bot className="w-4 h-4 text-violet-600" />
+        </div>
+        <div className="flex flex-col items-start max-w-[75%]">
+          <p className="text-[10px] text-violet-500 font-semibold mb-1 px-1 flex items-center gap-1">
+            <Sparkles className="w-3 h-3" />AI Assistant
+          </p>
+          <div className="bg-violet-50 border border-violet-200 text-violet-900 px-4 py-2.5 rounded-2xl rounded-tl-sm text-sm whitespace-pre-wrap break-words leading-relaxed">
+            {msg.content}
+          </div>
+          <span className="text-[10px] text-gray-400 mt-1 px-1">{formatTimeAgo(msg.created_at)}</span>
+        </div>
       </div>
     )
   }
@@ -283,6 +303,26 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
     toast.success(agentId == null ? 'Ticket unassigned' : `Assigned to ${agent?.full_name}`)
   }
 
+  const handleTakeOver = async () => {
+    if (!selectedId || !profile || !organization) return
+    try {
+      await supabase.from('conversations').update({
+        ai_handled: false,
+        assigned_agent_id: profile.id,
+        updated_at: new Date().toISOString(),
+      }).eq('id', selectedId)
+      await supabase.from('messages').insert(
+        makeSystemMsg(selectedId, organization.id,
+          `${profile.full_name} took over from AI`
+        )
+      )
+      refresh()
+      toast.success('You are now handling this conversation')
+    } catch {
+      toast.error('Failed to take over')
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
@@ -330,6 +370,11 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
           <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-md font-medium">
             {CHANNEL_LABELS[channelType]} · {conversation.inbox?.name}
           </span>
+          {(conversation as any).ai_handled && (
+            <span className="flex items-center gap-1 bg-violet-100 text-violet-700 text-xs font-bold px-2 py-0.5 rounded-full">
+              <Sparkles className="w-3 h-3" />AI Handling
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -394,6 +439,18 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
             <option value="resolved">Resolved</option>
           </select>
 
+          {/* Take Over from AI */}
+          {(conversation as any).ai_handled && (
+            <Button
+              size="sm"
+              className="h-8 px-3 bg-violet-600 hover:bg-violet-700 text-white font-semibold text-xs flex items-center gap-1.5"
+              onClick={handleTakeOver}
+            >
+              <User className="w-3.5 h-3.5" />
+              Take Over
+            </Button>
+          )}
+
           {/* Info toggle */}
           <Button
             variant={showInfo ? 'secondary' : 'ghost'}
@@ -419,7 +476,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
           </div>
         ) : (
           messages.map(msg => (
-            <MessageBubble key={msg.id} msg={msg} isAgent={msg.sender_type === 'agent'} />
+            <MessageBubble key={msg.id} msg={msg} isAgent={msg.sender_type === 'agent' || msg.sender_type === 'ai'} />
           ))
         )}
         <div ref={messagesEndRef} />

@@ -183,6 +183,11 @@ async function handleWhatsAppMessage(supabase: any, inbox: any, msg: any, waCont
     }).eq('id', conversation.id)
 
     console.log('WhatsApp message saved for conversation:', conversation.id)
+
+    // Trigger AI reply if inbox has ai_enabled
+    if (messageText) {
+        await maybeCallAiReply(supabase, inbox, conversation, messageText, displayName)
+    }
 }
 
 async function findOrCreateWhatsAppContact(supabase: any, orgId: string, waId: string, name: string) {
@@ -261,6 +266,11 @@ async function handleFacebookMessage(supabase: any, inbox: any, event: any) {
     }).eq('id', conversation.id)
 
     console.log('FB message saved for conversation:', conversation.id)
+
+    // Trigger AI reply if inbox has ai_enabled
+    if (messageText) {
+        await maybeCallAiReply(supabase, inbox, conversation, messageText, contact.name || 'Customer')
+    }
 }
 
 // ── Instagram handler ────────────────────────────────────────────────
@@ -299,6 +309,13 @@ async function handleInstagramMessage(supabase: any, inbox: any, event: any) {
         latest_message_at: new Date().toISOString(),
         latest_message_sender: contact.name || 'Unknown',
     }).eq('id', conversation.id)
+
+    console.log('IG message saved for conversation:', conversation.id)
+
+    // Trigger AI reply if inbox has ai_enabled
+    if (messageText) {
+        await maybeCallAiReply(supabase, inbox, conversation, messageText, contact.name || 'Customer')
+    }
 }
 
 // ── Shared helpers ───────────────────────────────────────────────────
@@ -353,5 +370,51 @@ async function findOrCreateConversation(supabase: any, inbox: any, contact: any,
     } catch (err) {
         console.error('findOrCreateConversation error:', err)
         return null
+    }
+}
+
+// ── AI Reply Trigger ─────────────────────────────────────────────────
+// Called after every inbound message. If inbox has ai_enabled, triggers ai-reply function.
+async function maybeCallAiReply(supabase: any, inbox: any, conversation: any, messageText: string, contactName: string) {
+    try {
+        // Fetch fresh inbox to get ai_enabled (select didn't include it earlier)
+        const { data: fullInbox } = await supabase
+            .from('inboxes')
+            .select('ai_enabled')
+            .eq('id', inbox.id)
+            .single()
+
+        if (!fullInbox?.ai_enabled) return
+        console.log(`AI enabled for inbox ${inbox.id} — triggering ai-reply`)
+
+        // For brand new conversations, mark as ai_handled
+        if (!conversation.ai_handled) {
+            await supabase
+                .from('conversations')
+                .update({ ai_handled: true })
+                .eq('id', conversation.id)
+        }
+
+        // Fire-and-forget: call ai-reply edge function
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+        fetch(`${supabaseUrl}/functions/v1/ai-reply`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            },
+            body: JSON.stringify({
+                conversation_id: conversation.id,
+                organization_id: inbox.organization_id,
+                inbox_id: inbox.id,
+                new_message: messageText,
+                contact_name: contactName,
+                channel_type: inbox.channel_type,
+            }),
+        }).catch(err => console.error('ai-reply call failed:', err))
+
+    } catch (err: any) {
+        console.error('maybeCallAiReply error:', err.message)
+        // Don't throw — AI failure should never break message delivery
     }
 }

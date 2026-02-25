@@ -7,7 +7,9 @@ export type PlanType = 'trial' | 'starter' | 'pro' | 'enterprise'
 export type MemberRole = 'owner' | 'admin' | 'agent'
 export type ChannelType = 'whatsapp' | 'facebook' | 'instagram' | 'widget' | 'email'
 export type ConversationStatus = 'open' | 'in_progress' | 'pending' | 'resolved'
-export type SenderType = 'contact' | 'agent' | 'bot' | 'system'
+export type SenderType = 'contact' | 'agent' | 'bot' | 'system' | 'ai'
+export type KnowledgeBaseStatus = 'processing' | 'ready' | 'failed'
+export type KnowledgeBaseType = 'pdf' | 'url'
 export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'file' | 'location' | 'template' | 'activity'
 
 export interface Organization {
@@ -64,6 +66,8 @@ export interface Inbox {
   widget_allowed_domains?: string[]
   // Email
   email_address?: string
+  // AI
+  ai_enabled: boolean
   // Settings
   auto_assign: boolean
   working_hours_enabled: boolean
@@ -113,6 +117,8 @@ export interface Conversation {
   unread_count: number
   contact_last_seen?: string
   snoozed_until?: string
+  ai_handled: boolean
+  ai_escalated_at?: string
   channel_conversation_id?: string
   meta?: Record<string, unknown>
   created_at: string
@@ -184,4 +190,18 @@ export interface NavItem {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   icon: any
   badge?: number
+}
+
+export interface KnowledgeBaseSource {
+  id: string
+  organization_id: string
+  type: KnowledgeBaseType
+  name: string
+  file_path?: string
+  source_url?: string
+  raw_content?: string
+  status: KnowledgeBaseStatus
+  error_message?: string
+  created_at: string
+  updated_at: string
 }

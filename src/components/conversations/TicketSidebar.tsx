@@ -4,18 +4,19 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useConversations, SidebarView } from '@/contexts/ConversationsContext'
 import { cn, getInitials } from '@/lib/utils'
 import {
-    Inbox, UserX, Users, CheckCircle, Clock, LayoutList,
-    LayoutDashboard, Settings, LogOut, ChevronLeft, ChevronRight, Headphones
+    Inbox, UserX, Users, CheckCircle, Clock,
+    LayoutDashboard, Settings, LogOut, ChevronLeft, ChevronRight, Headphones, Sparkles
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 const VIEWS = [
-    { id: 'my_open' as SidebarView, label: 'My Open Tickets', icon: Inbox, countKey: 'my_open' },
-    { id: 'unassigned' as SidebarView, label: 'Unassigned Tickets', icon: UserX, countKey: 'unassigned' },
-    { id: 'all_assigned' as SidebarView, label: 'All Assigned', icon: Users, countKey: 'all_assigned' },
-    { id: 'my_resolved_today' as SidebarView, label: 'My Resolved Today', icon: CheckCircle, countKey: 'my_resolved_today' },
-    { id: 'all_resolved_today' as SidebarView, label: 'All Resolved Today', icon: CheckCircle, countKey: 'all_resolved_today' },
-    { id: 'all_tickets' as SidebarView, label: 'All Tickets Ever', icon: Clock, countKey: 'all_tickets' },
+    { id: 'my_open' as SidebarView, label: 'My Open Tickets', icon: Inbox, countKey: 'my_open', color: '' },
+    { id: 'unassigned' as SidebarView, label: 'Unassigned Tickets', icon: UserX, countKey: 'unassigned', color: '' },
+    { id: 'ai_handling' as SidebarView, label: 'AI Handling', icon: Sparkles, countKey: 'ai_handling', color: 'text-violet-600' },
+    { id: 'all_assigned' as SidebarView, label: 'All Assigned', icon: Users, countKey: 'all_assigned', color: '' },
+    { id: 'my_resolved_today' as SidebarView, label: 'My Resolved Today', icon: CheckCircle, countKey: 'my_resolved_today', color: '' },
+    { id: 'all_resolved_today' as SidebarView, label: 'All Resolved Today', icon: CheckCircle, countKey: 'all_resolved_today', color: '' },
+    { id: 'all_tickets' as SidebarView, label: 'All Tickets Ever', icon: Clock, countKey: 'all_tickets', color: '' },
 ]
 
 const MENU = [
@@ -74,12 +75,12 @@ export default function TicketSidebar() {
                                 title={collapsed ? view.label : ''}
                                 className={cn(
                                     'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors',
-                                    isActive ? 'text-primary font-medium' : 'text-foreground hover:bg-gray-100',
+                                    isActive ? 'bg-primary/10 text-primary font-semibold' : (view.color ? `${view.color} hover:bg-violet-50` : 'text-foreground hover:bg-gray-100'),
                                     collapsed && 'justify-center'
                                 )}
                             >
                                 <div className={cn('flex items-center gap-2', collapsed && 'flex-col')}>
-                                    <Icon className="h-4 w-4" />
+                                    <Icon className={cn("h-4 w-4", view.color || (isActive ? 'text-primary' : ''))} />
                                     {!collapsed && <span>{view.label}</span>}
                                     {collapsed && (
                                         <span className="bg-gray-200 text-gray-700 text-xs px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
@@ -88,7 +89,12 @@ export default function TicketSidebar() {
                                     )}
                                 </div>
                                 {!collapsed && (
-                                    <span className="bg-gray-200 text-gray-700 text-xs px-2 py-0.5 rounded-full">
+                                    <span className={cn(
+                                        "text-xs px-2 py-0.5 rounded-full font-medium",
+                                        view.id === 'ai_handling' && count > 0
+                                            ? 'bg-violet-100 text-violet-700'
+                                            : 'bg-gray-100 text-gray-600'
+                                    )}>
                                         {count}
                                     </span>
                                 )}

@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from './AuthContext'
 import { Conversation, ConversationStatus } from '@/types'
 
-export type SidebarView = 'my_open' | 'unassigned' | 'all_assigned' | 'my_resolved_today' | 'all_resolved_today' | 'all_tickets'
+export type SidebarView = 'my_open' | 'unassigned' | 'ai_handling' | 'all_assigned' | 'my_resolved_today' | 'all_resolved_today' | 'all_tickets'
 
 interface ConversationsContextType {
   conversations: Conversation[]
@@ -96,9 +96,10 @@ export const ConversationsProvider = ({ children }: { children: ReactNode }) => 
     in_progress: conversations.filter(c => c.status === 'in_progress').length,
     pending: conversations.filter(c => c.status === 'pending').length,
     resolved: conversations.filter(c => c.status === 'resolved').length,
-    my_open: conversations.filter(c => getAgentId(c) === profile?.id && c.status !== 'resolved').length,
-    unassigned: conversations.filter(c => !getAgentId(c) && c.status !== 'resolved').length,
-    all_assigned: conversations.filter(c => !!getAgentId(c) && c.status !== 'resolved').length,
+    my_open: conversations.filter(c => getAgentId(c) === profile?.id && c.status !== 'resolved' && !(c as any).ai_handled).length,
+    unassigned: conversations.filter(c => !getAgentId(c) && c.status !== 'resolved' && !(c as any).ai_handled).length,
+    ai_handling: conversations.filter(c => !!(c as any).ai_handled && c.status !== 'resolved').length,
+    all_assigned: conversations.filter(c => !!getAgentId(c) && c.status !== 'resolved' && !(c as any).ai_handled).length,
     my_resolved_today: conversations.filter(c => c.status === 'resolved' && getAgentId(c) === profile?.id && new Date(c.updated_at) >= todayStart).length,
     all_resolved_today: conversations.filter(c => c.status === 'resolved' && new Date(c.updated_at) >= todayStart).length,
     all_tickets: conversations.length,

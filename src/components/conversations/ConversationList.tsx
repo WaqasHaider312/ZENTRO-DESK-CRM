@@ -3,7 +3,7 @@ import { useConversations } from '@/contexts/ConversationsContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn, getInitials, formatTimeAgo } from '@/lib/utils'
 import { Conversation, ConversationStatus, ChannelType } from '@/types'
-import { Search, SlidersHorizontal, FileText, Check, Loader2, Phone, Facebook, Instagram, Globe, Mail, MessageSquare } from 'lucide-react'
+import { Search, SlidersHorizontal, FileText, Check, Loader2, Phone, Facebook, Instagram, Globe, Mail, MessageSquare, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -64,6 +64,11 @@ function TicketCard({ conv, isSelected, onClick, isChecked, onCheck }: {
             <span className={cn('text-xs font-semibold text-primary', needsReply && 'font-bold')}>
               {ticketNum || '#'}
             </span>
+            {(conv as any).ai_handled && (
+              <span className="flex items-center gap-0.5 bg-violet-100 text-violet-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                <Sparkles className="w-2.5 h-2.5" />AI
+              </span>
+            )}
           </div>
           <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full', statusCfg.cls)}>
             {statusCfg.label}
@@ -138,9 +143,10 @@ export default function ConversationList() {
   const viewFiltered = conversations.filter(conv => {
     const agentId = getAgentId(conv)
     switch (activeView) {
-      case 'my_open': return agentId === profile?.id && conv.status !== 'resolved'
-      case 'unassigned': return !agentId && conv.status !== 'resolved'
-      case 'all_assigned': return !!agentId && conv.status !== 'resolved'
+      case 'my_open': return agentId === profile?.id && conv.status !== 'resolved' && !(conv as any).ai_handled
+      case 'unassigned': return !agentId && conv.status !== 'resolved' && !(conv as any).ai_handled
+      case 'ai_handling': return !!(conv as any).ai_handled && conv.status !== 'resolved'
+      case 'all_assigned': return !!agentId && conv.status !== 'resolved' && !(conv as any).ai_handled
       case 'my_resolved_today': return conv.status === 'resolved' && agentId === profile?.id && new Date(conv.updated_at) >= todayStart
       case 'all_resolved_today': return conv.status === 'resolved' && new Date(conv.updated_at) >= todayStart
       case 'all_tickets': return true
