@@ -423,6 +423,49 @@ export default function AISettings() {
                         </p>
                     </div>
 
+                    {/* Custom AI Prompt */}
+                    <div>
+                        <h2 className="font-bold text-gray-900 mb-1">AI Prompt</h2>
+                        <p className="text-sm text-gray-500 mb-4">
+                            Customize how the AI behaves when responding to customers. Leave blank to use the default prompt.
+                        </p>
+                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-3 text-xs text-gray-500 leading-relaxed">
+                            <p className="font-semibold text-gray-600 mb-1">Default prompt (used when blank):</p>
+                            <p className="italic">"You are a helpful customer support agent. Answer ONLY using the knowledge base. Keep replies concise and friendly. If you cannot answer, escalate to a human agent."</p>
+                        </div>
+                        <textarea
+                            value={aiPrompt}
+                            onChange={e => { setAiPrompt(e.target.value); setPromptDirty(true) }}
+                            placeholder={"Example:\nYou are a friendly support agent for Markaz. Always greet the customer warmly.\nKeep responses under 3 sentences.\nIf the question is about refunds, always apologize first before explaining the policy."}
+                            rows={6}
+                            className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                        />
+                        <div className="flex items-center justify-between mt-2">
+                            <p className="text-xs text-gray-400">{aiPrompt.length} characters</p>
+                            <div className="flex gap-2">
+                                {aiPrompt.trim() && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="rounded-lg text-xs"
+                                        onClick={() => { setAiPrompt(''); setPromptDirty(true) }}
+                                    >
+                                        Reset to default
+                                    </Button>
+                                )}
+                                <Button
+                                    size="sm"
+                                    disabled={!promptDirty || savingPrompt}
+                                    onClick={savePrompt}
+                                    className="rounded-lg text-xs bg-violet-600 hover:bg-violet-700 gap-1.5 disabled:opacity-50"
+                                >
+                                    {savingPrompt && <Loader2 className="w-3 h-3 animate-spin" />}
+                                    {promptDirty ? 'Save Prompt' : '✓ Saved'}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
