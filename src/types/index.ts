@@ -24,6 +24,7 @@ export interface Organization {
   trial_ends_at?: string
   is_active: boolean
   max_agents: number
+  ai_prompt?: string
   created_at: string
   updated_at: string
 }

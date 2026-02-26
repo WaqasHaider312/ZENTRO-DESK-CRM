@@ -87,14 +87,16 @@ Deno.serve(async (req) => {
         // ── 4. Fetch org name ─────────────────────────────────────────
         const { data: org } = await supabase
             .from('organizations')
-            .select('name')
+            .select('name, ai_prompt')
             .eq('id', organization_id)
             .single()
 
         const orgName = org?.name || 'our company'
+        const customPrompt = org?.ai_prompt?.trim() || ''
 
         // ── 5. Build GPT messages ─────────────────────────────────────
-        const systemPrompt = `You are a helpful customer support agent for ${orgName}.
+        // Use org's custom prompt if set, otherwise use default
+        const defaultPrompt = `You are a helpful customer support agent for ${orgName}.
 Your job is to answer customer questions using ONLY the knowledge base provided below.
 
 STRICT RULES:
@@ -103,9 +105,13 @@ STRICT RULES:
 - Keep replies concise, friendly, and professional.
 - Do NOT mention that you are an AI unless directly asked.
 - Do NOT mention "knowledge base" to the customer.
-- Respond in the SAME language the customer is using.
+- Respond in the SAME language the customer is using.`
 
-RESPONSE FORMAT (valid JSON only, no markdown, no extra text):
+        const behaviorPrompt = customPrompt || defaultPrompt
+
+        const systemPrompt = `${behaviorPrompt}
+
+IMPORTANT — RESPONSE FORMAT (valid JSON only, no markdown, no extra text):
 If you can answer: {"can_answer": true, "reply": "Your answer here"}
 If you cannot answer: {"can_answer": false}
 

@@ -29,6 +29,9 @@ export default function AISettings() {
     const [addingUrl, setAddingUrl] = useState(false)
     const [uploadingPdf, setUploadingPdf] = useState(false)
     const [togglingInbox, setTogglingInbox] = useState<string | null>(null)
+    const [aiPrompt, setAiPrompt] = useState('')
+    const [savingPrompt, setSavingPrompt] = useState(false)
+    const [promptDirty, setPromptDirty] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
@@ -55,6 +58,9 @@ export default function AISettings() {
         if (!organization) return
         setLoading(true)
         try {
+            const { data: orgData } = await supabase.from('organizations').select('ai_prompt').eq('id', organization.id).single()
+            setAiPrompt(orgData?.ai_prompt || '')
+
             const [{ data: kbs }, { data: inbs }] = await Promise.all([
                 supabase.from('knowledge_base_sources').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }),
                 supabase.from('inboxes').select('id, name, channel_type, ai_enabled, is_active').eq('organization_id', organization.id).eq('is_active', true).order('created_at'),
@@ -182,6 +188,20 @@ export default function AISettings() {
             toast.error(err.message || 'Failed to add URL')
         } finally {
             setAddingUrl(false)
+        }
+    }
+
+    const savePrompt = async () => {
+        if (!organization) return
+        setSavingPrompt(true)
+        try {
+            await supabase.from('organizations').update({ ai_prompt: aiPrompt.trim() || null }).eq('id', organization.id)
+            setPromptDirty(false)
+            toast.success('Prompt saved')
+        } catch {
+            toast.error('Failed to save prompt')
+        } finally {
+            setSavingPrompt(false)
         }
     }
 
