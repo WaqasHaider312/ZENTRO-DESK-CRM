@@ -374,30 +374,38 @@ async function findOrCreateConversation(supabase: any, inbox: any, contact: any,
 }
 
 // ── AI Reply Trigger ─────────────────────────────────────────────────
-// Called after every inbound message. If inbox has ai_enabled, triggers ai-reply function.
+// Called after every inbound message. Triggers ai-agent if inbox has ai_enabled.
+// AI only responds if: ai_enabled=true AND conversation.ai_handled=true AND no agent assigned
 async function maybeCallAiReply(supabase: any, inbox: any, conversation: any, messageText: string, contactName: string) {
     try {
-        // Fetch fresh inbox to get ai_enabled (select didn't include it earlier)
-        const { data: fullInbox } = await supabase
-            .from('inboxes')
-            .select('ai_enabled')
-            .eq('id', inbox.id)
-            .single()
+        // Fetch fresh inbox + conversation state
+        const [{ data: fullInbox }, { data: freshConv }] = await Promise.all([
+            supabase.from('inboxes').select('ai_enabled').eq('id', inbox.id).single(),
+            supabase.from('conversations').select('ai_handled, assigned_agent_id, status').eq('id', conversation.id).single(),
+        ])
 
         if (!fullInbox?.ai_enabled) return
-        console.log(`AI enabled for inbox ${inbox.id} — triggering ai-reply`)
 
-        // For brand new conversations, mark as ai_handled
-        if (!conversation.ai_handled) {
-            await supabase
-                .from('conversations')
-                .update({ ai_handled: true })
-                .eq('id', conversation.id)
+        // CRITICAL: AI must not respond if conversation was escalated or assigned to an agent
+        if (freshConv?.assigned_agent_id) {
+            console.log(`Skipping AI: conversation ${conversation.id} is assigned to an agent`)
+            return
+        }
+        if (freshConv?.status === 'resolved') {
+            console.log(`Skipping AI: conversation ${conversation.id} is resolved`)
+            return
         }
 
-        // Fire-and-forget: call ai-reply edge function
+        // Only mark ai_handled=true for brand new conversations (not previously escalated)
+        if (!freshConv?.ai_handled) {
+            await supabase.from('conversations').update({ ai_handled: true }).eq('id', conversation.id)
+        }
+
+        console.log(`AI enabled for inbox ${inbox.id} — triggering ai-agent`)
+
+        // Fire-and-forget: call ai-agent edge function
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-        fetch(`${supabaseUrl}/functions/v1/ai-reply`, {
+        fetch(`${supabaseUrl}/functions/v1/ai-agent`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -411,7 +419,7 @@ async function maybeCallAiReply(supabase: any, inbox: any, conversation: any, me
                 contact_name: contactName,
                 channel_type: inbox.channel_type,
             }),
-        }).catch(err => console.error('ai-reply call failed:', err))
+        }).catch(err => console.error('ai-agent call failed:', err))
 
     } catch (err: any) {
         console.error('maybeCallAiReply error:', err.message)

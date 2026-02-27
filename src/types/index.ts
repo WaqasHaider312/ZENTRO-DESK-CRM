@@ -206,3 +206,49 @@ export interface KnowledgeBaseSource {
   created_at: string
   updated_at: string
 }
+
+// ── AI Protocols ──────────────────────────────────────────────────────
+
+export interface AiProtocolParam {
+  id: string
+  protocol_id: string
+  param_name: string
+  description: string
+  required: boolean
+  sort_order: number
+}
+
+export type AiProtocolStepType = 'call_api' | 'send_message' | 'lookup_document'
+
+export interface AiProtocolStep {
+  id: string
+  protocol_id: string
+  step_order: number
+  type: AiProtocolStepType
+  config: {
+    // call_api
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+    url?: string
+    headers?: Record<string, string>
+    body?: Record<string, any>
+    // send_message
+    message?: string
+    // lookup_document
+    document_name?: string
+    instruction?: string
+  }
+  created_at: string
+}
+
+export interface AiProtocol {
+  id: string
+  organization_id: string
+  name: string
+  trigger_description: string
+  is_active: boolean
+  requires_confirmation: boolean
+  params?: AiProtocolParam[]
+  steps?: AiProtocolStep[]
+  created_at: string
+  updated_at: string
+}
