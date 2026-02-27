@@ -317,6 +317,16 @@ Deno.serve(async (req) => {
     }
 })
 
+function slugify(name: string): string {
+    const slug = name.toLowerCase()
+        .replace(/[^a-z0-9_.-]+/g, '_')
+        .replace(/^[^a-z0-9]+/, '')   // must start with alphanumeric
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '')
+        .slice(0, 64)
+    return slug || 'tool'
+}
+
 // ── Build system prompt ───────────────────────────────────────────────
 function buildSystemPrompt(orgName: string, customPrompt: string, knowledgeBase: string, protocols: Protocol[]): string {
     const defaultBehavior = `You are a helpful customer support agent for ${orgName}.
@@ -370,11 +380,13 @@ function buildClaudeTools(protocols: Protocol[]): any[] {
         const required: string[] = []
 
         for (const param of protocol.params) {
-            properties[param.param_name] = {
+            const safeKey = slugify(param.param_name)
+            if (!safeKey) continue
+            properties[safeKey] = {
                 type: 'string',
-                description: param.description,
+                description: param.description || param.param_name,
             }
-            if (param.required) required.push(param.param_name)
+            if (param.required) required.push(safeKey)
         }
 
         tools.push({
@@ -431,10 +443,12 @@ async function executeProtocolSteps(
         try {
             if (step.type === 'call_api') {
                 const config = step.config
-                const url = fillPlaceholders(config.url, params)
                 const method = config.method || 'POST'
 
-                // Build headers
+                // URL: simple placeholder replacement
+                const url = fillPlaceholders(config.url || '', params)
+
+                // Headers: placeholder replacement for auth tokens
                 const headers: Record<string, string> = { 'Content-Type': 'application/json' }
                 if (config.headers) {
                     for (const [k, v] of Object.entries(config.headers)) {
@@ -442,18 +456,22 @@ async function executeProtocolSteps(
                     }
                 }
 
-                // Build body
+                // Body: Claude builds it intelligently from description + example + collected params
                 let body: string | undefined
-                if (config.body && method !== 'GET') {
-                    const filledBody = fillObjectPlaceholders(config.body, params)
-                    body = JSON.stringify(filledBody)
+                if (method !== 'GET') {
+                    const aiBody = await buildRequestBodyWithClaude(
+                        config.body_description || '',
+                        config.body || {},
+                        params,
+                        protocol
+                    )
+                    body = JSON.stringify(aiBody)
+                    console.log(`AI-built request body: ${body}`)
                 }
 
                 console.log(`Calling API: ${method} ${url}`)
                 const apiRes = await fetch(url, {
-                    method,
-                    headers,
-                    body,
+                    method, headers, body,
                     signal: AbortSignal.timeout(15_000),
                 })
 
@@ -465,12 +483,12 @@ async function executeProtocolSteps(
                     return {
                         success: false,
                         summary: `API returned ${apiRes.status}`,
-                        error: `HTTP ${apiRes.status}: ${responseText.slice(0, 200)}`,
+                        error: `HTTP ${apiRes.status}: ${responseText.slice(0, 300)}`,
                     }
                 }
 
                 results.push({ step: step.step_order, type: 'call_api', status: apiRes.status, data: responseData })
-                console.log(`API call success: ${apiRes.status}`, JSON.stringify(responseData).slice(0, 200))
+                console.log(`API success: ${apiRes.status}`, JSON.stringify(responseData).slice(0, 300))
 
             } else if (step.type === 'send_message') {
                 const msg = fillPlaceholders(step.config.message || '', params)
@@ -495,6 +513,62 @@ async function executeProtocolSteps(
     return { success: true, summary, data: results }
 }
 
+// ── Claude builds the request body intelligently ──────────────────────
+// Org provides: example body structure + optional description of what API needs
+// Claude maps collected customer params to the correct API fields automatically
+async function buildRequestBodyWithClaude(
+    bodyDescription: string,
+    exampleBody: Record<string, any>,
+    collectedParams: Record<string, string>,
+    protocol: Protocol
+): Promise<Record<string, any>> {
+    // If example body is empty, just send the collected params as-is
+    if (!exampleBody || Object.keys(exampleBody).length === 0) {
+        return collectedParams
+    }
+
+    try {
+        const systemPrompt = `You are a JSON request body builder for API calls.
+Given an example body structure, a description of what the API needs, and values collected from a customer conversation — build the correct JSON request body.
+Return ONLY valid JSON. No explanation, no markdown, no code blocks. Just the raw JSON object.`
+
+        const paramsText = Object.entries(collectedParams)
+            .map(([k, v]) => `  ${k}: "${v}"`)
+            .join('
+')
+
+    const protocolParamsText = protocol.params
+            .map(p => `  ${p.param_name}: ${p.description}`)
+            .join('
+')
+
+    const userMsg = `API body structure (use this as template):
+${JSON.stringify(exampleBody, null, 2)}
+
+${bodyDescription ? `What this API does: ${bodyDescription}
+` : ''}
+Values collected from customer:
+${paramsText}
+
+Protocol parameter definitions:
+${protocolParamsText}
+
+Build the complete JSON request body, mapping customer values to the correct fields.
+Use the example body structure as the template — keep all static fields, fill in the dynamic ones from customer values.`
+
+        const res = await callClaude(systemPrompt, [{ role: 'user', content: userMsg }], [])
+        const data = await res.json()
+        const text = data.content?.find((b: any) => b.type === 'text')?.text?.trim() || '{}'
+        const clean = text.replace(/```json|```/g, '').trim()
+        const parsed = JSON.parse(clean)
+        console.log('Claude-built body:', JSON.stringify(parsed))
+        return parsed
+    } catch (err: any) {
+        console.error('buildRequestBodyWithClaude failed:', err.message, '— falling back to example body')
+        // Fallback: use example body with simple placeholder replacement
+        return fillObjectPlaceholders(exampleBody, collectedParams)
+    }
+}
 // ── Claude formulates natural response from API result ────────────────
 async function claudeFormulateResponse(
     orgName: string,
@@ -504,24 +578,55 @@ async function claudeFormulateResponse(
     protocolName: string
 ): Promise<string> {
     try {
-        const systemPrompt = `You are a customer support agent for ${orgName}. 
-Given the result of an action, formulate a natural, friendly response to the customer.
-Be concise. Do not mention technical details like API, HTTP status codes, or JSON.
-${customPrompt ? `\nAdditional instructions: ${customPrompt}` : ''}`
+        // Extract meaningful info from the API response
+        const resultSummary = summarizeApiResult(result.data)
 
-        const userMsg = `The customer asked: "${originalMessage}"
-    
-We executed: ${protocolName}
-Result: ${JSON.stringify(result.data, null, 2)}
+        const systemPrompt = `You are a customer support agent for ${orgName}.
+The customer made a request and we have just completed the action for them.
+Write ONE short, natural, friendly confirmation message to the customer.
+Do NOT ask for more information. Do NOT mention API, JSON, status codes, or technical details.
+Just confirm what was done in plain language.
+${customPrompt ? `\nTone instructions: ${customPrompt}` : ''}`
 
-Write a natural response to the customer about what happened.`
+        const userMsg = `Protocol executed: ${protocolName}
+Result: ${resultSummary}
+Customer's original request: "${originalMessage}"
+
+Write a brief confirmation message (1-2 sentences max).`
 
         const res = await callClaude(systemPrompt, [{ role: 'user', content: userMsg }], [])
         const data = await res.json()
         const text = data.content?.find((b: any) => b.type === 'text')?.text?.trim()
-        return text || 'Your request has been processed successfully!'
+        return text || `Your ${protocolName.toLowerCase()} request has been processed successfully!`
     } catch {
-        return 'Your request has been processed successfully!'
+        return `Your ${protocolName.toLowerCase()} request has been processed successfully!`
+    }
+}
+
+// Extract a human-readable summary from API response data
+function summarizeApiResult(data: any): string {
+    if (!data) return 'Action completed successfully'
+    try {
+        const results = Array.isArray(data) ? data : [data]
+        const summaries: string[] = []
+        for (const item of results) {
+            if (item?.data) {
+                // Nested result from our executeProtocolSteps structure
+                const d = item.data
+                const relevant = Object.entries(d)
+                    .filter(([k]) => !['id', 'created_at', 'updated_at', '__v'].includes(k))
+                    .slice(0, 5)
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join(', ')
+                if (relevant) summaries.push(relevant)
+            } else if (item?.type === 'call_api' && item?.data) {
+                const d = typeof item.data === 'string' ? item.data : JSON.stringify(item.data).slice(0, 300)
+                summaries.push(d)
+            }
+        }
+        return summaries.join('; ') || 'Action completed successfully'
+    } catch {
+        return 'Action completed successfully'
     }
 }
 
@@ -652,9 +757,6 @@ async function sendToChannel(supabase: any, params: {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
-function slugify(name: string): string {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-}
 
 function fillPlaceholders(template: string, params: Record<string, string>): string {
     return template.replace(/\{\{(\w+)\}\}/g, (_, key) => params[key] || `{{${key}}}`)

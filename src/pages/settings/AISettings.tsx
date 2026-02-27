@@ -638,7 +638,10 @@ function ProtocolModal({ protocol, organization, onClose, onSave }: {
                             {params.map((param, i) => (
                                 <div key={i} className="flex gap-2 items-start p-3 border border-gray-200 rounded-lg">
                                     <div className="flex-1 grid grid-cols-2 gap-2">
-                                        <Input value={param.param_name || ''} onChange={e => updateParam(i, 'param_name', e.target.value)} placeholder="param_name (e.g. order_id)" className="text-xs h-8 font-mono" />
+                                        <div>
+                                            <Input value={param.param_name || ''} onChange={e => updateParam(i, 'param_name', e.target.value)} placeholder="e.g. order_id" className="text-xs h-8 font-mono" />
+                                            <p className="text-[10px] text-gray-400 mt-0.5">Use underscores, no spaces</p>
+                                        </div>
                                         <Input value={param.description || ''} onChange={e => updateParam(i, 'description', e.target.value)} placeholder="Description for Claude" className="text-xs h-8" />
                                     </div>
                                     <label className="flex items-center gap-1 text-xs text-gray-600 flex-shrink-0 mt-1.5">
@@ -721,23 +724,40 @@ function StepEditor({ step, index, onUpdate, onRemove }: { step: Partial<AiProto
                                 placeholder="https://api.example.com/orders/cancel" className="text-xs h-8 flex-1 font-mono" />
                         </div>
                         <div>
-                            <label className="text-xs font-semibold text-gray-600 mb-1 block">Headers (JSON) — use any auth method</label>
+                            <label className="text-xs font-semibold text-gray-600 mb-1 block">Authentication Headers (JSON)</label>
                             <textarea value={headersText} onChange={e => {
                                 setHeadersText(e.target.value)
                                 try { onUpdate({ ...step.config, headers: JSON.parse(e.target.value) }) } catch { }
-                            }} rows={3} placeholder={'{\n  "Authorization": "Bearer YOUR_TOKEN",\n  "x-api-key": "YOUR_KEY"\n}'}
+                            }} rows={2} placeholder={'{ "Authorization": "Bearer YOUR_TOKEN" }'}
                                 className="w-full border border-gray-200 rounded-lg p-2 text-xs font-mono resize-none focus:outline-none focus:ring-1 focus:ring-violet-500" />
                         </div>
                         {step.config?.method !== 'GET' && (
-                            <div>
-                                <label className="text-xs font-semibold text-gray-600 mb-1 block">Request Body (JSON) — use {`{{param_name}}`} for collected values</label>
-                                <textarea value={bodyText} onChange={e => {
-                                    setBodyText(e.target.value)
-                                    try { onUpdate({ ...step.config, body: JSON.parse(e.target.value) }) } catch { }
-                                }} rows={4} placeholder={'{\n  "order_id": "{{order_id}}",\n  "item_id": "{{item_id}}"\n}'}
-                                    className="w-full border border-gray-200 rounded-lg p-2 text-xs font-mono resize-none focus:outline-none focus:ring-1 focus:ring-violet-500" />
-                                <p className="text-xs text-gray-400 mt-1">Use {`{{param_name}}`} placeholders — they'll be filled with values collected from the customer</p>
-                            </div>
+                            <>
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                    <p className="text-xs font-semibold text-blue-800 mb-1">🤖 AI-powered body mapping</p>
+                                    <p className="text-xs text-blue-700 leading-relaxed">
+                                        Paste your exact API body below. AI automatically maps collected customer values to the correct fields — no placeholders needed.
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-gray-600 mb-1 block">
+                                        What does this API do? <span className="font-normal text-gray-400">(context for AI)</span>
+                                    </label>
+                                    <Input value={step.config?.body_description || ''} onChange={e => onUpdate({ ...step.config, body_description: e.target.value })}
+                                        placeholder="e.g. Cancels an order item using its order item ID" className="text-xs h-8" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Request Body (JSON) — paste your exact API body</label>
+                                    <textarea value={bodyText} onChange={e => {
+                                        setBodyText(e.target.value)
+                                        try { onUpdate({ ...step.config, body: JSON.parse(e.target.value) }) } catch { }
+                                    }} rows={6} placeholder={'{ "reason": "Reseller Request", "status": "Cancelled", "orderItemId": "CUSTOMER ORDER ITEM ID" }'}
+                                        className="w-full border border-gray-200 rounded-lg p-2 text-xs font-mono resize-none focus:outline-none focus:ring-1 focus:ring-violet-500" />
+                                    <p className="text-xs text-gray-400 mt-1.5">
+                                        For dynamic fields write a plain description like <code className="bg-gray-100 px-1 rounded">CUSTOMER ORDER ITEM ID</code> — AI replaces it with the correct value automatically.
+                                    </p>
+                                </div>
+                            </>
                         )}
                     </>
                 )}
