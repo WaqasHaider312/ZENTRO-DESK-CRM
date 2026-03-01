@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from './AuthContext'
-import { Conversation, ConversationStatus } from '@/types'
+import { Conversation, ConversationStatus, Label } from '@/types'
 
 export type SidebarView = 'my_open' | 'unassigned' | 'ai_handling' | 'all_assigned' | 'my_resolved_today' | 'all_resolved_today' | 'all_tickets'
 
@@ -13,6 +13,9 @@ interface ConversationsContextType {
   setActiveView: (v: SidebarView) => void
   activeFilter: ConversationStatus | 'all'
   setActiveFilter: (f: ConversationStatus | 'all') => void
+  activeLabelId: string | null
+  setActiveLabelId: (id: string | null) => void
+  orgLabels: Label[]
   counts: {
     open: number; in_progress: number; pending: number; resolved: number
     my_open: number; unassigned: number; all_assigned: number
@@ -24,28 +27,52 @@ interface ConversationsContextType {
 
 const ConversationsContext = createContext<ConversationsContextType | undefined>(undefined)
 
+// Conversation select with labels joined through junction table
+const CONV_SELECT = '*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id, name, channel_type), assigned_agent:agent_profiles!assigned_agent_id(id, full_name, avatar_url), conversation_labels(label:labels(id, name, color))'
+
+// Shape returned by Supabase for conversation_labels join
+function extractLabels(conv: any): Label[] {
+  if (!conv.conversation_labels) return []
+  return conv.conversation_labels
+    .map((cl: any) => cl.label)
+    .filter(Boolean)
+}
+
 export const ConversationsProvider = ({ children }: { children: ReactNode }) => {
   const { organization, profile } = useAuth()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<SidebarView>('my_open')
   const [activeFilter, setActiveFilter] = useState<ConversationStatus | 'all'>('all')
+  const [activeLabelId, setActiveLabelId] = useState<string | null>(null)
+  const [orgLabels, setOrgLabels] = useState<Label[]>([])
   const [loading, setLoading] = useState(true)
   const channelRef = useRef<any>(null)
+
+  // Fetch org labels once
+  useEffect(() => {
+    if (!organization) return
+    supabase
+      .from('labels')
+      .select('*')
+      .eq('organization_id', organization.id)
+      .order('name')
+      .then(({ data }) => setOrgLabels(data || []))
+  }, [organization?.id])
 
   const refresh = async () => {
     if (!organization) return
     try {
       const { data: active } = await supabase
         .from('conversations')
-        .select('*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id, name, channel_type), assigned_agent:agent_profiles!assigned_agent_id(id, full_name, avatar_url)')
+        .select(CONV_SELECT)
         .eq('organization_id', organization.id)
         .in('status', ['open', 'in_progress', 'pending'])
         .order('updated_at', { ascending: false })
 
       const { data: resolved } = await supabase
         .from('conversations')
-        .select('*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id, name, channel_type), assigned_agent:agent_profiles!assigned_agent_id(id, full_name, avatar_url)')
+        .select(CONV_SELECT)
         .eq('organization_id', organization.id)
         .eq('status', 'resolved')
         .order('updated_at', { ascending: false })
@@ -53,7 +80,10 @@ export const ConversationsProvider = ({ children }: { children: ReactNode }) => 
 
       const all = [...(active || []), ...(resolved || [])]
       all.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-      setConversations(all)
+
+      // Attach labels array to each conversation
+      const withLabels = all.map(c => ({ ...c, labels: extractLabels(c) }))
+      setConversations(withLabels)
     } catch (err) {
       console.error('Error fetching conversations:', err)
     } finally {
@@ -65,31 +95,41 @@ export const ConversationsProvider = ({ children }: { children: ReactNode }) => 
     if (!organization) return
     refresh()
     if (channelRef.current) supabase.removeChannel(channelRef.current)
+
     const channel = supabase
       .channel(`conversations-${organization.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations', filter: `organization_id=eq.${organization.id}` },
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'conversations', filter: `organization_id=eq.${organization.id}` },
         async (payload) => {
           const { data } = await supabase.from('conversations')
-            .select('*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id,name,channel_type), assigned_agent:agent_profiles!assigned_agent_id(id,full_name,avatar_url)')
-            .eq('id', payload.new.id).single()
-          if (data) setConversations(prev => [data, ...prev])
+            .select(CONV_SELECT).eq('id', payload.new.id).single()
+          if (data) setConversations(prev => [{ ...data, labels: extractLabels(data) }, ...prev])
         })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `organization_id=eq.${organization.id}` },
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `organization_id=eq.${organization.id}` },
         async (payload) => {
           const { data } = await supabase.from('conversations')
-            .select('*, assigned_agent_id, contact:contacts(*), inbox:inboxes(id,name,channel_type), assigned_agent:agent_profiles!assigned_agent_id(id,full_name,avatar_url)')
-            .eq('id', payload.new.id).single()
-          if (data) setConversations(prev => prev.map(c => c.id === data.id ? data : c))
+            .select(CONV_SELECT).eq('id', payload.new.id).single()
+          if (data) setConversations(prev => prev.map(c => c.id === data.id ? { ...data, labels: extractLabels(data) } : c))
+        })
+      // Also listen for conversation_labels changes so cards update instantly
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'conversation_labels' },
+        async (payload) => {
+          const convId = (payload.new as any)?.conversation_id || (payload.old as any)?.conversation_id
+          if (!convId) return
+          const { data } = await supabase.from('conversations')
+            .select(CONV_SELECT).eq('id', convId).single()
+          if (data) setConversations(prev => prev.map(c => c.id === convId ? { ...data, labels: extractLabels(data) } : c))
         })
       .subscribe()
+
     channelRef.current = channel
     return () => { supabase.removeChannel(channel) }
   }, [organization?.id])
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
 
-  // BUG FIX #8: Use assigned_agent?.id (from join) not raw assigned_agent_id field
-  // The join gives us assigned_agent:{id, full_name, avatar_url}, not the raw FK
   const getAgentId = (c: Conversation) => (c.assigned_agent as any)?.id || (c as any).assigned_agent_id || null
   const counts = {
     open: conversations.filter(c => c.status === 'open').length,
@@ -106,7 +146,14 @@ export const ConversationsProvider = ({ children }: { children: ReactNode }) => 
   }
 
   return (
-    <ConversationsContext.Provider value={{ conversations, selectedId, setSelectedId, activeView, setActiveView, activeFilter, setActiveFilter, counts, loading, refresh }}>
+    <ConversationsContext.Provider value={{
+      conversations, selectedId, setSelectedId,
+      activeView, setActiveView,
+      activeFilter, setActiveFilter,
+      activeLabelId, setActiveLabelId,
+      orgLabels,
+      counts, loading, refresh,
+    }}>
       {children}
     </ConversationsContext.Provider>
   )
