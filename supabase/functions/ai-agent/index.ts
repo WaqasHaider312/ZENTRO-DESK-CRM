@@ -534,15 +534,13 @@ Return ONLY valid JSON. No explanation, no markdown, no code blocks. Just the ra
 
         const paramsText = Object.entries(collectedParams)
             .map(([k, v]) => `  ${k}: "${v}"`)
-            .join('
-')
+            .join('\n')
 
-    const protocolParamsText = protocol.params
+        const protocolParamsText = protocol.params
             .map(p => `  ${p.param_name}: ${p.description}`)
-            .join('
-')
+            .join('\n')
 
-    const userMsg = `API body structure (use this as template):
+        const userMsg = `API body structure (use this as template):
 ${JSON.stringify(exampleBody, null, 2)}
 
 ${bodyDescription ? `What this API does: ${bodyDescription}

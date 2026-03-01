@@ -156,8 +156,13 @@ async function handleWhatsAppMessage(supabase: any, inbox: any, msg: any, waCont
     if (!contact) return
 
     // Find or create conversation
-    const conversation = await findOrCreateConversation(supabase, inbox, contact, messageId)
+    const { conversation, isNew } = await findOrCreateConversation(supabase, inbox, contact, messageId)
     if (!conversation) return
+
+    // Apply auto-assign rules to brand-new conversations
+    if (isNew) {
+        await applyAutoAssignRules(supabase, inbox.organization_id, conversation.id, inbox.id, 'whatsapp', messageText)
+    }
 
     // Save message
     const messageType = msg.type === 'text' ? 'text' : (msg.type === 'image' ? 'image' : 'file')
@@ -240,8 +245,12 @@ async function handleFacebookMessage(supabase: any, inbox: any, event: any) {
     const contact = await findOrCreateContact(supabase, inbox.organization_id, { fb_psid: senderId, channel: 'facebook' })
     if (!contact) return
 
-    const conversation = await findOrCreateConversation(supabase, inbox, contact, mid)
+    const { conversation, isNew } = await findOrCreateConversation(supabase, inbox, contact, mid)
     if (!conversation) return
+
+    if (isNew) {
+        await applyAutoAssignRules(supabase, inbox.organization_id, conversation.id, inbox.id, 'facebook', messageText)
+    }
 
     const attachmentUrls = attachments.filter((a: any) => a.payload?.url).map((a: any) => a.payload.url)
 
@@ -288,8 +297,12 @@ async function handleInstagramMessage(supabase: any, inbox: any, event: any) {
     const contact = await findOrCreateContact(supabase, inbox.organization_id, { ig_id: senderId, channel: 'instagram' })
     if (!contact) return
 
-    const conversation = await findOrCreateConversation(supabase, inbox, contact, mid)
+    const { conversation, isNew } = await findOrCreateConversation(supabase, inbox, contact, mid)
     if (!conversation) return
+
+    if (isNew) {
+        await applyAutoAssignRules(supabase, inbox.organization_id, conversation.id, inbox.id, 'instagram', messageText)
+    }
 
     await supabase.from('messages').insert({
         conversation_id: conversation.id,
@@ -355,7 +368,7 @@ async function findOrCreateConversation(supabase: any, inbox: any, contact: any,
             .limit(1)
             .maybeSingle()
 
-        if (existing) return existing
+        if (existing) return { conversation: existing, isNew: false }
 
         const { data: newConv, error } = await supabase.from('conversations').insert({
             organization_id: inbox.organization_id,
@@ -365,11 +378,85 @@ async function findOrCreateConversation(supabase: any, inbox: any, contact: any,
             channel_conversation_id: messageId,
         }).select().single()
 
-        if (error) { console.error('Error creating conversation:', error); return null }
-        return newConv
+        if (error) { console.error('Error creating conversation:', error); return { conversation: null, isNew: false } }
+        return { conversation: newConv, isNew: true }
     } catch (err) {
         console.error('findOrCreateConversation error:', err)
-        return null
+        return { conversation: null, isNew: false }
+    }
+}
+
+// ── Auto-Assign Rule Engine ──────────────────────────────────────────
+async function applyAutoAssignRules(
+    supabase: any,
+    orgId: string,
+    conversationId: string,
+    inboxId: string,
+    channelType: string,
+    messageText: string
+) {
+    try {
+        // Load active rules ordered by priority ascending (lowest first = highest priority)
+        const { data: rules } = await supabase
+            .from('auto_assign_rules')
+            .select('*, agent:agent_profiles!assign_to_agent_id(id, full_name)')
+            .eq('organization_id', orgId)
+            .eq('is_active', true)
+            .order('priority', { ascending: true })
+
+        if (!rules || rules.length === 0) return
+
+        const msgLower = messageText.toLowerCase()
+
+        for (const rule of rules) {
+            const conditions: any[] = rule.conditions || []
+            if (conditions.length === 0) continue
+
+            const results = conditions.map((c: any) => {
+                if (c.field === 'channel') {
+                    return c.operator === 'equals' && channelType === c.value
+                }
+                if (c.field === 'keyword') {
+                    return c.operator === 'contains' && msgLower.includes(c.value.toLowerCase())
+                }
+                if (c.field === 'inbox_id') {
+                    return c.operator === 'equals' && inboxId === c.value
+                }
+                return false
+            })
+
+            const matched = rule.condition_match === 'all'
+                ? results.every(Boolean)
+                : results.some(Boolean)
+
+            if (matched && rule.assign_to_agent_id) {
+                // Assign the conversation
+                await supabase
+                    .from('conversations')
+                    .update({ assigned_agent_id: rule.assign_to_agent_id, updated_at: new Date().toISOString() })
+                    .eq('id', conversationId)
+
+                // Log system message
+                const agentName = rule.agent?.full_name || 'an agent'
+                await supabase.from('messages').insert({
+                    conversation_id: conversationId,
+                    organization_id: orgId,
+                    sender_type: 'system',
+                    sender_name: 'System',
+                    message_type: 'activity',
+                    content: `Auto-assigned to ${agentName} by rule "${rule.name}"`,
+                    is_private: false,
+                    is_read: true,
+                    is_deleted: false,
+                })
+
+                console.log(`Auto-assigned conversation ${conversationId} to ${agentName} via rule "${rule.name}"`)
+                return // First match wins
+            }
+        }
+    } catch (err: any) {
+        // Never let rule engine break message delivery
+        console.error('applyAutoAssignRules error:', err.message)
     }
 }
 

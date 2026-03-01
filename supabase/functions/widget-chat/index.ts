@@ -113,6 +113,9 @@ serve(async (req) => {
                 latest_message_sender: name,
             }).eq('id', conv.id)
 
+            // Apply auto-assign rules to new widget conversations
+            await applyAutoAssignRules(supabase, inbox.organization_id, conv.id, inbox.id, 'widget', message)
+
             return json({ conversation_id: conv.id, visitor_id: contact.id })
         }
 
@@ -199,4 +202,67 @@ function json(data: any, status = 200) {
         status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
+}
+
+async function applyAutoAssignRules(
+    supabase: any,
+    orgId: string,
+    conversationId: string,
+    inboxId: string,
+    channelType: string,
+    messageText: string
+) {
+    try {
+        const { data: rules } = await supabase
+            .from('auto_assign_rules')
+            .select('*, agent:agent_profiles!assign_to_agent_id(id, full_name)')
+            .eq('organization_id', orgId)
+            .eq('is_active', true)
+            .order('priority', { ascending: true })
+
+        if (!rules || rules.length === 0) return
+
+        const msgLower = messageText.toLowerCase()
+
+        for (const rule of rules) {
+            const conditions: any[] = rule.conditions || []
+            if (conditions.length === 0) continue
+
+            const results = conditions.map((c: any) => {
+                if (c.field === 'channel') return c.operator === 'equals' && channelType === c.value
+                if (c.field === 'keyword') return c.operator === 'contains' && msgLower.includes(c.value.toLowerCase())
+                if (c.field === 'inbox_id') return c.operator === 'equals' && inboxId === c.value
+                return false
+            })
+
+            const matched = rule.condition_match === 'all'
+                ? results.every(Boolean)
+                : results.some(Boolean)
+
+            if (matched && rule.assign_to_agent_id) {
+                await supabase
+                    .from('conversations')
+                    .update({ assigned_agent_id: rule.assign_to_agent_id, updated_at: new Date().toISOString() })
+                    .eq('id', conversationId)
+
+                const agentName = rule.agent?.full_name || 'an agent'
+                await supabase.from('messages').insert({
+                    conversation_id: conversationId,
+                    organization_id: orgId,
+                    sender_type: 'system',
+                    sender_name: 'System',
+                    message_type: 'activity',
+                    content: `Auto-assigned to ${agentName} by rule "${rule.name}"`,
+                    is_private: false,
+                    is_read: true,
+                    is_deleted: false,
+                })
+
+                console.log(`Auto-assigned ${conversationId} to ${agentName} via rule "${rule.name}"`)
+                return
+            }
+        }
+    } catch (err: any) {
+        console.error('applyAutoAssignRules error:', err.message)
+    }
 }

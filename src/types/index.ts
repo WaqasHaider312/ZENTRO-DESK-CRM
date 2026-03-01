@@ -157,6 +157,7 @@ export interface CannedResponse {
   title: string
   content: string
   shortcut?: string
+  use_count: number
   created_at: string
   updated_at: string
 }

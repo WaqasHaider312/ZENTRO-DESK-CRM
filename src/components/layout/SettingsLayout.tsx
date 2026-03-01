@@ -2,7 +2,7 @@ import { Outlet, NavLink, useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn, getInitials } from '@/lib/utils'
 import {
-    Settings, Inbox, Users, MessageSquare, Tag, Sparkles,
+    Settings, Inbox, Users, MessageSquare, Tag, Sparkles, Zap,
     LogOut, ChevronLeft, ChevronRight, Headphones,
     ArrowLeft
 } from 'lucide-react'
@@ -16,6 +16,7 @@ const SETTINGS_NAV = [
     { label: 'Canned Responses', path: 'canned-responses', icon: MessageSquare },
     { label: 'Labels', path: 'labels', icon: Tag },
     { label: 'AI Assistant', path: 'ai', icon: Sparkles },
+    { label: 'Auto-Assign', path: 'auto-assign', icon: Zap },
 ]
 
 export default function SettingsLayout() {

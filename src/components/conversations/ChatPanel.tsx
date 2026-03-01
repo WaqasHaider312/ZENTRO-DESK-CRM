@@ -1,12 +1,12 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConversations } from '@/contexts/ConversationsContext'
-import { Message, Conversation, AgentProfile } from '@/types'
+import { Message, Conversation, AgentProfile, CannedResponse } from '@/types'
 import { cn, getInitials, formatTimeAgo } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Send, Paperclip, Info, Lock, User, ChevronDown, Loader2, X, MessageCircle, Sparkles, Bot } from 'lucide-react'
+import { Paperclip, Info, Lock, User, ChevronDown, Loader2, X, MessageCircle, Sparkles, Bot, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -22,7 +22,6 @@ interface ChatPanelProps {
   showInfo: boolean
 }
 
-// BUG FIX #4: Helper — system message with all required fields
 function makeSystemMsg(conversationId: string, orgId: string, content: string) {
   return {
     conversation_id: conversationId,
@@ -61,7 +60,6 @@ function MessageBubble({ msg, isAgent }: { msg: Message; isAgent: boolean }) {
     )
   }
 
-  // AI message — special purple bubble
   if (msg.sender_type === 'ai') {
     return (
       <div className="flex gap-2 mb-4 flex-row">
@@ -93,9 +91,7 @@ function MessageBubble({ msg, isAgent }: { msg: Message; isAgent: boolean }) {
         <p className="text-[10px] text-gray-400 mb-1 px-1">{msg.sender_name}</p>
         <div className={cn(
           'px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap break-words leading-relaxed',
-          isAgent
-            ? 'bg-primary text-white rounded-tr-sm'
-            : 'bg-gray-100 text-gray-900 rounded-tl-sm'
+          isAgent ? 'bg-primary text-white rounded-tr-sm' : 'bg-gray-100 text-gray-900 rounded-tl-sm'
         )}>
           {msg.content}
           {msg.attachment_urls && msg.attachment_urls.length > 0 && (
@@ -115,6 +111,104 @@ function MessageBubble({ msg, isAgent }: { msg: Message; isAgent: boolean }) {
   )
 }
 
+// ── Quick Replies Dropdown ─────────────────────────────────────────────
+interface QRDropdownProps {
+  responses: CannedResponse[]
+  search: string
+  activeIndex: number
+  onSelect: (r: CannedResponse) => void
+  onHover: (i: number) => void
+}
+
+function QRDropdown({ responses, search, activeIndex, onSelect, onHover }: QRDropdownProps) {
+  const activeRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex])
+
+  const filtered = search.trim() === ''
+    ? responses
+    : responses.filter(r => {
+      const q = search.toLowerCase()
+      return (
+        r.title.toLowerCase().includes(q) ||
+        (r.shortcut || '').toLowerCase().includes(q) ||
+        r.content.toLowerCase().includes(q)
+      )
+    })
+
+  if (filtered.length === 0) {
+    return (
+      <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-4 text-center">
+        <p className="text-sm text-gray-400">
+          No quick replies matching <span className="font-semibold text-gray-600">/{search}</span>
+        </p>
+        <p className="text-xs text-gray-300 mt-1">Create them in Settings → Canned Responses</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden max-h-72 flex flex-col">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50 flex-shrink-0">
+        <Zap className="w-3.5 h-3.5 text-primary" />
+        <span className="text-xs font-bold text-gray-600">Quick Replies</span>
+        {search && (
+          <span className="text-xs text-gray-400">
+            — <span className="text-primary font-semibold">/{search}</span>
+          </span>
+        )}
+        <span className="ml-auto text-[10px] text-gray-400 hidden sm:block">
+          ↑↓ navigate · Enter/Tab select · Esc close
+        </span>
+      </div>
+
+      <div className="overflow-y-auto flex-1">
+        {filtered.map((r, i) => (
+          <button
+            key={r.id}
+            ref={i === activeIndex ? activeRef : null}
+            onClick={() => onSelect(r)}
+            onMouseEnter={() => onHover(i)}
+            className={cn(
+              'w-full text-left px-4 py-3 flex items-start gap-3 transition-colors border-b border-gray-50 last:border-0',
+              i === activeIndex ? 'bg-primary/5' : 'hover:bg-gray-50'
+            )}
+          >
+            <div className="flex-shrink-0 mt-0.5 w-16">
+              {r.shortcut ? (
+                <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-1 rounded-md">
+                  /{r.shortcut}
+                </span>
+              ) : (
+                <span className="text-[10px] text-gray-300">no shortcut</span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900 truncate">{r.title}</p>
+              <p className="text-xs text-gray-400 line-clamp-1 mt-0.5">
+                {r.content.slice(0, 90)}{r.content.length > 90 ? '…' : ''}
+              </p>
+            </div>
+            {(r as any).use_count > 0 && (
+              <span className="text-[10px] text-gray-300 flex-shrink-0 mt-1">
+                ×{(r as any).use_count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="px-3 py-1.5 border-t border-gray-100 bg-gray-50 flex-shrink-0 flex items-center justify-between">
+        <p className="text-[10px] text-gray-400">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</p>
+        <p className="text-[10px] text-gray-300">Sorted by most used</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Component ─────────────────────────────────────────────────────
 export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
   const { profile, organization } = useAuth()
   const { selectedId, conversations, refresh } = useConversations()
@@ -129,13 +223,48 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
   const [showAssign, setShowAssign] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const channelRef = useRef<any>(null)
+  const replyBoxRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Quick Replies state
+  const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([])
+  const [showCanned, setShowCanned] = useState(false)
+  const [cannedSearch, setCannedSearch] = useState('')
+  const [cannedIndex, setCannedIndex] = useState(0)
+  const slashPosRef = useRef<number>(-1)
+
+  // Load canned responses on org load
+  useEffect(() => {
+    if (!organization) return
+    supabase
+      .from('canned_responses')
+      .select('*')
+      .eq('organization_id', organization.id)
+      .order('use_count', { ascending: false })
+      .then(({ data }) => setCannedResponses((data as any) || []))
+  }, [organization?.id])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!showCanned) return
+    const handler = (e: MouseEvent) => {
+      if (replyBoxRef.current && !replyBoxRef.current.contains(e.target as Node)) {
+        setShowCanned(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showCanned])
+
+  // Reset index on new search
+  useEffect(() => { setCannedIndex(0) }, [cannedSearch])
 
   // Sync conversation from context
   useEffect(() => {
     setConversation(selectedId ? (conversations.find(c => c.id === selectedId) ?? null) : null)
   }, [selectedId, conversations])
 
-  // Load messages + subscribe when ticket selected
+  // Load messages + subscribe
   useEffect(() => {
     if (!selectedId) { setMessages([]); return }
     loadMessages(selectedId)
@@ -187,13 +316,79 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
     channelRef.current = channel
   }
 
+  // ── Quick reply helpers ──────────────────────────────────────────────
+
+  const getFiltered = useCallback(() => {
+    if (!cannedSearch.trim()) return cannedResponses
+    const q = cannedSearch.toLowerCase()
+    return cannedResponses.filter(r =>
+      r.title.toLowerCase().includes(q) ||
+      (r.shortcut || '').toLowerCase().includes(q) ||
+      r.content.toLowerCase().includes(q)
+    )
+  }, [cannedResponses, cannedSearch])
+
+  const handleReplyChange = useCallback((value: string) => {
+    setReplyText(value)
+
+    // Find last / before cursor — detect if it's a trigger
+    const cursor = textareaRef.current?.selectionStart ?? value.length
+    const textUpToCursor = value.slice(0, cursor)
+    const slashMatch = textUpToCursor.match(/\/(\w*)$/)
+
+    if (slashMatch) {
+      slashPosRef.current = cursor - slashMatch[0].length
+      setCannedSearch(slashMatch[1])
+      setShowCanned(true)
+    } else {
+      setShowCanned(false)
+      slashPosRef.current = -1
+    }
+  }, [])
+
+  const selectCanned = useCallback((response: CannedResponse) => {
+    setShowCanned(false)
+
+    const cursor = textareaRef.current?.selectionStart ?? replyText.length
+    const before = replyText.slice(0, slashPosRef.current) // text before /
+    const after = replyText.slice(cursor)                   // text after cursor
+    const newText = before + response.content + after
+    setReplyText(newText)
+    slashPosRef.current = -1
+    setCannedSearch('')
+
+    // Restore focus + move cursor to end of inserted content
+    setTimeout(() => {
+      if (!textareaRef.current) return
+      textareaRef.current.focus()
+      const pos = before.length + response.content.length
+      textareaRef.current.setSelectionRange(pos, pos)
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 160) + 'px'
+    }, 0)
+
+    // Increment use_count silently
+    supabase
+      .from('canned_responses')
+      .update({ use_count: ((response as any).use_count || 0) + 1 })
+      .eq('id', response.id)
+      .then(() => {
+        setCannedResponses(prev =>
+          prev
+            .map(r => r.id === response.id ? { ...r, use_count: ((r as any).use_count || 0) + 1 } as any : r)
+            .sort((a: any, b: any) => (b.use_count || 0) - (a.use_count || 0))
+        )
+      })
+  }, [replyText])
+
+  // ── Send ─────────────────────────────────────────────────────────────
+
   const sendMessage = async () => {
     const text = activeTab === 'reply' ? replyText : noteText
     if (!text.trim() || !selectedId || !profile || !organization) return
+    setShowCanned(false)
 
     const isNote = activeTab === 'note'
-
-    // Optimistic update
     const optimistic: Message = {
       id: `opt-${Date.now()}`,
       conversation_id: selectedId,
@@ -214,7 +409,6 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
     setSending(true)
     try {
       if (isNote) {
-        // Internal notes — always direct DB insert
         const { error } = await supabase.from('messages').insert({
           conversation_id: selectedId,
           organization_id: organization.id,
@@ -225,12 +419,10 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
           content: text.trim(),
           is_private: true,
           is_read: true,
-          is_deleted: false,  // BUG FIX #4: was missing
+          is_deleted: false,
         })
         if (error) throw error
       } else {
-        // BUG FIX #3: ALL channels (including widget) go through edge function
-        // so the edge function can update latest_message + latest_message_sender='agent'
         const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-message`, {
           method: 'POST',
           headers: {
@@ -255,7 +447,6 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
       setMessages(prev => prev.filter(m => m.id !== optimistic.id))
       isNote ? setNoteText(text) : setReplyText(text)
       toast.error(err.message || 'Failed to send')
-      console.error(err)
     } finally {
       setSending(false)
     }
@@ -277,7 +468,6 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
 
   const loadAgents = async () => {
     if (!organization) return
-    // Already org-scoped correctly
     const { data } = await supabase
       .from('agent_profiles')
       .select('id, full_name, email, role, is_active, availability, organization_id, created_at, updated_at, avatar_url')
@@ -312,9 +502,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
         updated_at: new Date().toISOString(),
       }).eq('id', selectedId)
       await supabase.from('messages').insert(
-        makeSystemMsg(selectedId, organization.id,
-          `${profile.full_name} took over from AI`
-        )
+        makeSystemMsg(selectedId, organization.id, `${profile.full_name} took over from AI`)
       )
       refresh()
       toast.success('You are now handling this conversation')
@@ -323,14 +511,38 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showCanned) {
+      const filtered = getFiltered()
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setCannedIndex(i => Math.min(i + 1, filtered.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setCannedIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        if (filtered[cannedIndex]) selectCanned(filtered[cannedIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowCanned(false)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       sendMessage()
     }
   }
 
-  // Empty state
+  // ── Empty state ──────────────────────────────────────────────────────
   if (!selectedId || !conversation) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-50">
@@ -363,6 +575,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full bg-white overflow-hidden">
+
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-5 h-14 border-b border-gray-200 flex-shrink-0 bg-white">
         <div className="flex items-center gap-3 min-w-0">
@@ -381,8 +594,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
           {/* Assign dropdown */}
           <div className="relative">
             <Button
-              variant="outline"
-              size="sm"
+              variant="outline" size="sm"
               className="text-xs gap-1.5 h-8 font-medium"
               onClick={() => { setShowAssign(!showAssign); if (!showAssign) loadAgents() }}
             >
@@ -454,8 +666,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
           {/* Info toggle */}
           <Button
             variant={showInfo ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-8 w-8 p-0"
+            size="sm" className="h-8 w-8 p-0"
             onClick={onToggleInfo}
           >
             <Info className="w-4 h-4" />
@@ -495,23 +706,19 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
           {/* Tabs */}
           <div className="flex border-b border-gray-100 px-1">
             <button
-              onClick={() => setActiveTab('reply')}
+              onClick={() => { setActiveTab('reply'); setShowCanned(false) }}
               className={cn(
                 'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors',
-                activeTab === 'reply'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
+                activeTab === 'reply' ? 'border-primary text-primary' : 'border-transparent text-gray-400 hover:text-gray-600'
               )}
             >
               Reply
             </button>
             <button
-              onClick={() => setActiveTab('note')}
+              onClick={() => { setActiveTab('note'); setShowCanned(false) }}
               className={cn(
                 'px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-1.5',
-                activeTab === 'note'
-                  ? 'border-amber-500 text-amber-600'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
+                activeTab === 'note' ? 'border-amber-500 text-amber-600' : 'border-transparent text-gray-400 hover:text-gray-600'
               )}
             >
               <Lock className="w-3 h-3" />
@@ -519,19 +726,45 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
             </button>
           </div>
 
-          <div className={cn('p-4', activeTab === 'note' && 'bg-amber-50/50')}>
+          {/* Input area — relative so dropdown can be positioned above */}
+          <div
+            ref={replyBoxRef}
+            className={cn('p-4 relative', activeTab === 'note' && 'bg-amber-50/50')}
+          >
+            {/* Quick Replies Dropdown */}
+            {showCanned && activeTab === 'reply' && (
+              <QRDropdown
+                responses={cannedResponses}
+                search={cannedSearch}
+                activeIndex={cannedIndex}
+                onSelect={selectCanned}
+                onHover={setCannedIndex}
+              />
+            )}
+
             <div className="flex items-end gap-3">
-              <Button variant="ghost" size="sm" className="h-9 w-9 p-0 flex-shrink-0 text-gray-400 hover:text-gray-600 rounded-full">
+              <Button
+                variant="ghost" size="sm"
+                className="h-9 w-9 p-0 flex-shrink-0 text-gray-400 hover:text-gray-600 rounded-full"
+              >
                 <Paperclip className="w-4 h-4" />
               </Button>
+
               <Textarea
+                ref={textareaRef}
                 placeholder={
                   activeTab === 'reply'
-                    ? 'Type message, paste screenshot (Ctrl+V), or drag & drop files... (Ctrl+Enter to send)'
+                    ? 'Type / for quick replies · Ctrl+Enter to send'
                     : 'Add an internal note... (only agents can see this)'
                 }
                 value={activeTab === 'reply' ? replyText : noteText}
-                onChange={e => activeTab === 'reply' ? setReplyText(e.target.value) : setNoteText(e.target.value)}
+                onChange={e => {
+                  if (activeTab === 'reply') {
+                    handleReplyChange(e.target.value)
+                  } else {
+                    setNoteText(e.target.value)
+                  }
+                }}
                 onKeyDown={handleKeyDown}
                 rows={1}
                 className={cn(
@@ -545,6 +778,7 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
                   t.style.height = Math.min(t.scrollHeight, 160) + 'px'
                 }}
               />
+
               <Button
                 size="sm"
                 className={cn(
@@ -554,15 +788,24 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
                 onClick={sendMessage}
                 disabled={sending || !(activeTab === 'reply' ? replyText.trim() : noteText.trim())}
               >
-                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-                  activeTab === 'reply' ? 'Send' : 'Add Note'
-                )}
+                {sending
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : activeTab === 'reply' ? 'Send' : 'Add Note'
+                }
               </Button>
             </div>
 
             <div className="flex items-center justify-between mt-2 px-1">
-              <span className="text-[11px] text-gray-400">
-                {activeTab === 'note' ? '🔒 Only visible to agents' : 'Use / for quick replies • Ctrl+Enter to send'}
+              <span className="text-[11px] text-gray-400 flex items-center gap-1">
+                {activeTab === 'note'
+                  ? '🔒 Only visible to agents'
+                  : (
+                    <>
+                      <Zap className="w-3 h-3 text-primary" />
+                      Type <kbd className="mx-0.5 px-1 py-px bg-gray-100 border border-gray-300 rounded text-[10px] font-mono">/</kbd> for quick replies · Ctrl+Enter to send
+                    </>
+                  )
+                }
               </span>
               <span className="text-[11px] text-gray-400">
                 {(activeTab === 'reply' ? replyText : noteText).length}/1000

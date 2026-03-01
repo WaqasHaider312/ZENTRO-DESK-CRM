@@ -17,6 +17,7 @@ import CannedResponses from '@/pages/settings/CannedResponses'
 import Labels from '@/pages/settings/Labels'
 import OrgSettings from '@/pages/settings/OrgSettings'
 import AISettings from '@/pages/settings/AISettings'
+import AutoAssign from '@/pages/settings/AutoAssign'
 import NotFound from '@/pages/NotFound'
 import OAuthCallback from '@/pages/OAuthCallback'
 
@@ -78,6 +79,7 @@ const AppRoutes = () => (
         <Route path="canned-responses" element={<CannedResponses />} />
         <Route path="labels" element={<Labels />} />
         <Route path="ai" element={<AISettings />} />
+        <Route path="auto-assign" element={<AutoAssign />} />
       </Route>
     </Route>
 
