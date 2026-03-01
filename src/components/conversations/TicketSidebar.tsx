@@ -5,7 +5,7 @@ import { useConversations, SidebarView } from '@/contexts/ConversationsContext'
 import { cn, getInitials } from '@/lib/utils'
 import {
     Inbox, UserX, Users, CheckCircle, Clock,
-    BarChart2, Settings, LogOut, ChevronLeft,
+    BarChart, Settings, LogOut, ChevronLeft,
     Headphones, Sparkles, User
 } from 'lucide-react'
 
@@ -20,7 +20,7 @@ const VIEWS = [
 ]
 
 const TOOLS = [
-    { id: 'reports', label: 'Reports', icon: BarChart2, path: 'reports' },
+    { id: 'reports', label: 'Reports', icon: BarChart, path: 'reports' },
     { id: 'contacts', label: 'Contacts', icon: User, path: 'contacts' },
     { id: 'settings', label: 'Settings', icon: Settings, path: 'settings' },
 ]
