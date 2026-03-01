@@ -480,7 +480,12 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
   const assignAgent = async (agentId: string | null) => {
     if (!selectedId || !organization || !profile) return
     const agent = agents.find(a => a.id === agentId)
-    await supabase.from('conversations').update({ assigned_agent_id: agentId, updated_at: new Date().toISOString() }).eq('id', selectedId)
+    await supabase.from('conversations').update({
+      assigned_agent_id: agentId,
+      // Clear AI handling flag when a real agent takes over via assign dropdown
+      ...(agentId ? { ai_handled: false } : {}),
+      updated_at: new Date().toISOString()
+    }).eq('id', selectedId)
     await supabase.from('messages').insert(
       makeSystemMsg(selectedId, organization.id,
         agentId == null
