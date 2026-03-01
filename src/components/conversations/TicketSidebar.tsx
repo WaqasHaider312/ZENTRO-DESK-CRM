@@ -5,22 +5,23 @@ import { useConversations, SidebarView } from '@/contexts/ConversationsContext'
 import { cn, getInitials } from '@/lib/utils'
 import {
     Inbox, UserX, Users, CheckCircle, Clock,
-    LayoutDashboard, Settings, LogOut, ChevronLeft, ChevronRight, Headphones, Sparkles
+    BarChart2, Settings, LogOut, ChevronLeft, ChevronRight,
+    Headphones, Sparkles, UserCircle2
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 
 const VIEWS = [
-    { id: 'my_open' as SidebarView, label: 'My Open Tickets', icon: Inbox, countKey: 'my_open', color: '' },
-    { id: 'unassigned' as SidebarView, label: 'Unassigned Tickets', icon: UserX, countKey: 'unassigned', color: '' },
-    { id: 'ai_handling' as SidebarView, label: 'AI Handling', icon: Sparkles, countKey: 'ai_handling', color: 'text-violet-600' },
-    { id: 'all_assigned' as SidebarView, label: 'All Assigned', icon: Users, countKey: 'all_assigned', color: '' },
-    { id: 'my_resolved_today' as SidebarView, label: 'My Resolved Today', icon: CheckCircle, countKey: 'my_resolved_today', color: '' },
-    { id: 'all_resolved_today' as SidebarView, label: 'All Resolved Today', icon: CheckCircle, countKey: 'all_resolved_today', color: '' },
-    { id: 'all_tickets' as SidebarView, label: 'All Tickets Ever', icon: Clock, countKey: 'all_tickets', color: '' },
+    { id: 'my_open' as SidebarView, label: 'My Open Tickets', icon: Inbox, countKey: 'my_open', ai: false },
+    { id: 'unassigned' as SidebarView, label: 'Unassigned', icon: UserX, countKey: 'unassigned', ai: false },
+    { id: 'ai_handling' as SidebarView, label: 'AI Handling', icon: Sparkles, countKey: 'ai_handling', ai: true },
+    { id: 'all_assigned' as SidebarView, label: 'All Assigned', icon: Users, countKey: 'all_assigned', ai: false },
+    { id: 'my_resolved_today' as SidebarView, label: 'My Resolved Today', icon: CheckCircle, countKey: 'my_resolved_today', ai: false },
+    { id: 'all_resolved_today' as SidebarView, label: 'All Resolved Today', icon: CheckCircle, countKey: 'all_resolved_today', ai: false },
+    { id: 'all_tickets' as SidebarView, label: 'All Tickets', icon: Clock, countKey: 'all_tickets', ai: false },
 ]
 
-const MENU = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '' },
+const TOOLS = [
+    { id: 'reports', label: 'Reports', icon: BarChart2, path: 'reports' },
+    { id: 'contacts', label: 'Contacts', icon: UserCircle2, path: 'contacts' },
     { id: 'settings', label: 'Settings', icon: Settings, path: 'settings' },
 ]
 
@@ -33,37 +34,39 @@ export default function TicketSidebar() {
 
     return (
         <div className={cn(
-            'bg-white border-r border-gray-200 flex flex-col h-full transition-all duration-300 flex-shrink-0',
+            'flex flex-col h-full transition-all duration-300 flex-shrink-0',
+            'bg-[#111827] border-r border-[#1F2937]',
             collapsed ? 'w-16' : 'w-60'
         )}>
+
             {/* Logo */}
-            <div className="p-4 border-b border-gray-200">
+            <div className={cn(
+                'flex items-center border-b border-[#1F2937] flex-shrink-0 h-14',
+                collapsed ? 'justify-center px-3' : 'px-4 gap-3'
+            )}>
                 {collapsed ? (
-                    <div className="flex flex-col items-center gap-2">
-                        <button onClick={() => setCollapsed(false)} className="p-1 hover:bg-primary rounded transition-colors group mb-2">
-                            <ChevronRight className="h-5 w-5 text-gray-600 group-hover:text-white" />
-                        </button>
-                        <Headphones className="h-8 w-8 text-primary" />
-                    </div>
+                    <button onClick={() => setCollapsed(false)} className="w-8 h-8 rounded-lg bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors">
+                        <Headphones className="h-4 w-4 text-primary" />
+                    </button>
                 ) : (
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Headphones className="h-8 w-8 text-primary flex-shrink-0" />
-                            <span className="text-base font-bold text-foreground truncate">{organization?.name || 'Zentro Desk'}</span>
+                    <>
+                        <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
+                            <Headphones className="h-4 w-4 text-primary" />
                         </div>
-                        <button onClick={() => setCollapsed(true)} className="p-1 hover:bg-primary rounded transition-colors group flex-shrink-0">
-                            <ChevronLeft className="h-5 w-5 text-gray-600 group-hover:text-white" />
+                        <span className="flex-1 text-sm font-bold text-white truncate">{organization?.name || 'Zentro Desk'}</span>
+                        <button onClick={() => setCollapsed(true)} className="p-1.5 hover:bg-[#1F2937] rounded-lg transition-colors">
+                            <ChevronLeft className="h-4 w-4 text-[#6B7280]" />
                         </button>
-                    </div>
+                    </>
                 )}
             </div>
 
             {/* Views */}
-            <div className="py-4 px-2 flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto py-3 px-2">
                 {!collapsed && (
-                    <h3 className="text-xs uppercase text-muted-foreground px-3 mb-2 font-medium">Views</h3>
+                    <p className="text-[10px] font-bold text-[#4B5563] uppercase tracking-widest px-3 mb-2">Inbox</p>
                 )}
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                     {VIEWS.map(view => {
                         const Icon = view.icon
                         const count = counts[view.countKey as keyof typeof counts] as number
@@ -72,54 +75,62 @@ export default function TicketSidebar() {
                             <button
                                 key={view.id}
                                 onClick={() => setActiveView(view.id)}
-                                title={collapsed ? view.label : ''}
+                                title={collapsed ? view.label : undefined}
                                 className={cn(
-                                    'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors',
-                                    isActive ? 'bg-primary/10 text-primary font-semibold' : (view.color ? `${view.color} hover:bg-violet-50` : 'text-foreground hover:bg-gray-100'),
-                                    collapsed && 'justify-center'
+                                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-all relative',
+                                    collapsed && 'justify-center px-2',
+                                    isActive
+                                        ? 'bg-[#064E3B] text-emerald-300 font-semibold'
+                                        : 'text-[#9CA3AF] hover:bg-[#1F2937] hover:text-white'
                                 )}
                             >
-                                <div className={cn('flex items-center gap-2', collapsed && 'flex-col')}>
-                                    <Icon className={cn("h-4 w-4", view.color || (isActive ? 'text-primary' : ''))} />
-                                    {!collapsed && <span>{view.label}</span>}
-                                    {collapsed && (
-                                        <span className="bg-gray-200 text-gray-700 text-xs px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                                <Icon className={cn(
+                                    'flex-shrink-0',
+                                    collapsed ? 'h-5 w-5' : 'h-4 w-4',
+                                    isActive ? 'text-emerald-400' : view.ai ? 'text-violet-400' : 'text-[#6B7280]'
+                                )} />
+                                {!collapsed && (
+                                    <>
+                                        <span className="flex-1 text-left truncate">{view.label}</span>
+                                        <span className={cn(
+                                            'text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center tabular-nums',
+                                            isActive ? 'bg-emerald-900/60 text-emerald-300'
+                                                : view.ai && count > 0 ? 'bg-violet-900/40 text-violet-400'
+                                                    : 'bg-[#1F2937] text-[#6B7280]'
+                                        )}>
                                             {count}
                                         </span>
-                                    )}
-                                </div>
-                                {!collapsed && (
-                                    <span className={cn(
-                                        "text-xs px-2 py-0.5 rounded-full font-medium",
-                                        view.id === 'ai_handling' && count > 0
-                                            ? 'bg-violet-100 text-violet-700'
-                                            : 'bg-gray-100 text-gray-600'
-                                    )}>
-                                        {count}
+                                    </>
+                                )}
+                                {collapsed && count > 0 && (
+                                    <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                                        {count > 9 ? '9+' : count}
                                     </span>
                                 )}
                             </button>
                         )
                     })}
                 </div>
-            </div>
 
-            {/* Menu */}
-            <div className="py-4 px-2 border-t border-gray-200">
+                <div className="h-px bg-[#1F2937] mx-2 my-3" />
+
                 {!collapsed && (
-                    <h3 className="text-xs uppercase text-muted-foreground px-3 mb-2 font-medium">Menu</h3>
+                    <p className="text-[10px] font-bold text-[#4B5563] uppercase tracking-widest px-3 mb-2">Tools</p>
                 )}
-                <div className="space-y-1">
-                    {MENU.map(item => {
+                <div className="space-y-0.5">
+                    {TOOLS.map(item => {
                         const Icon = item.icon
                         return (
                             <button
                                 key={item.id}
                                 onClick={() => navigate(`/app/${orgSlug}/${item.path}`)}
-                                title={collapsed ? item.label : ''}
-                                className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-foreground hover:bg-gray-100 transition-colors', collapsed && 'justify-center')}
+                                title={collapsed ? item.label : undefined}
+                                className={cn(
+                                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-[#9CA3AF] hover:bg-[#1F2937] hover:text-white transition-all',
+                                    collapsed && 'justify-center px-2'
+                                )}
                             >
-                                <Icon className="h-4 w-4" />
+                                <Icon className={cn('text-[#6B7280] flex-shrink-0', collapsed ? 'h-5 w-5' : 'h-4 w-4')} />
                                 {!collapsed && <span>{item.label}</span>}
                             </button>
                         )
@@ -128,31 +139,34 @@ export default function TicketSidebar() {
             </div>
 
             {/* Profile */}
-            <div className="mt-auto p-4 border-t border-gray-200">
+            <div className={cn('border-t border-[#1F2937] flex-shrink-0', collapsed ? 'p-3 flex flex-col items-center gap-2' : 'p-4')}>
                 {collapsed ? (
-                    <div className="flex flex-col items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-sm font-semibold">
+                    <>
+                        <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white">
                             {profile?.full_name ? getInitials(profile.full_name) : 'AG'}
                         </div>
-                        <Button variant="ghost" size="sm" onClick={() => signOut()} className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50" title="Logout">
+                        <button onClick={() => signOut()} title="Logout" className="p-1.5 text-[#6B7280] hover:text-red-400 hover:bg-[#1F2937] rounded-lg transition-colors">
                             <LogOut className="h-4 w-4" />
-                        </Button>
-                    </div>
+                        </button>
+                    </>
                 ) : (
                     <>
                         <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
                                 {profile?.full_name ? getInitials(profile.full_name) : 'AG'}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-foreground truncate">{profile?.full_name || 'Agent'}</p>
-                                <p className="text-xs text-muted-foreground truncate">{profile?.email}</p>
+                                <p className="text-sm font-semibold text-white truncate">{profile?.full_name || 'Agent'}</p>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                                    <p className="text-[11px] text-[#6B7280] truncate">{profile?.email}</p>
+                                </div>
                             </div>
                         </div>
-                        <Button variant="ghost" size="sm" onClick={() => signOut()} className="w-full text-red-600 hover:text-red-700 hover:bg-red-50">
-                            <LogOut className="h-4 w-4 mr-2" />
-                            Logout
-                        </Button>
+                        <button onClick={() => signOut()} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[#6B7280] hover:bg-[#1F2937] hover:text-red-400 transition-all">
+                            <LogOut className="h-4 w-4 flex-shrink-0" />
+                            <span>Logout</span>
+                        </button>
                     </>
                 )}
             </div>

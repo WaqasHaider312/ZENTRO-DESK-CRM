@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useConversations } from '@/contexts/ConversationsContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn, getInitials, formatTimeAgo } from '@/lib/utils'
-import { Conversation, ConversationStatus, ChannelType } from '@/types'
-import { Search, SlidersHorizontal, FileText, Check, Loader2, Phone, Facebook, Instagram, Globe, Mail, MessageSquare, Sparkles } from 'lucide-react'
+import { Conversation, ConversationStatus, ChannelType, Label } from '@/types'
+import { Search, SlidersHorizontal, FileText, Check, Loader2, Phone, Facebook, Instagram, Globe, Mail, MessageSquare, Sparkles, Tag, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -17,10 +17,10 @@ const CHANNEL_COLORS: Record<ChannelType, string> = {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
-  open: { label: 'Open', cls: 'bg-blue-100 text-blue-700' },
-  in_progress: { label: 'In Progress', cls: 'bg-amber-100 text-amber-700' },
-  pending: { label: 'Pending', cls: 'bg-orange-100 text-orange-700' },
-  resolved: { label: 'Resolved', cls: 'bg-green-100 text-green-700' },
+  open: { label: 'Open', cls: 'bg-emerald-50 text-emerald-700' },
+  in_progress: { label: 'In Progress', cls: 'bg-amber-50 text-amber-700' },
+  pending: { label: 'Pending', cls: 'bg-orange-50 text-orange-700' },
+  resolved: { label: 'Resolved', cls: 'bg-gray-100 text-gray-500' },
 }
 
 type SortType = 'newest' | 'oldest' | 'unread'
@@ -34,85 +34,122 @@ function TicketCard({ conv, isSelected, onClick, isChecked, onCheck }: {
   const channelColor = CHANNEL_COLORS[channelType] || 'text-muted-foreground'
   const contactName = conv.contact?.name || conv.contact?.phone || conv.contact?.email || 'Unknown'
   const statusCfg = STATUS_CONFIG[conv.status] || STATUS_CONFIG.open
-  const ticketNum = (conv as any).ticket_number ? `TKT${String((conv as any).ticket_number).padStart(6, '0')}` : null
+  const ticketNum = (conv as any).ticket_number
+    ? `TKT${String((conv as any).ticket_number).padStart(6, '0')}`
+    : null
   const assignedAgent = conv.assigned_agent as any
   const needsReply = conv.latest_message_sender !== 'agent' && conv.status !== 'resolved'
+  const labels: Label[] = (conv as any).labels || []
 
   return (
     <div
       onClick={onClick}
       className={cn(
-        'flex items-start gap-3 p-4 border-b border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer',
-        isSelected && 'bg-blue-50 border-l-4 border-l-primary',
-        needsReply && !isSelected && 'bg-blue-50/40'
+        'flex items-start gap-2.5 px-4 py-3.5 border-b border-gray-100 cursor-pointer transition-all',
+        'hover:bg-gray-50',
+        isSelected
+          ? 'bg-emerald-50/60 border-l-[3px] border-l-primary'
+          : 'border-l-[3px] border-l-transparent',
+        needsReply && !isSelected && 'bg-gray-50/50'
       )}
     >
+      {/* Checkbox */}
       <input
         type="checkbox"
         checked={isChecked}
         onClick={onCheck}
         onChange={() => { }}
-        className="mt-1 h-4 w-4 rounded border-gray-300 text-primary cursor-pointer flex-shrink-0"
+        className="mt-1 h-3.5 w-3.5 rounded border-gray-300 text-primary cursor-pointer flex-shrink-0 accent-primary"
       />
 
       <div className="flex-1 min-w-0">
-        {/* Row 1: Ticket number + status */}
+        {/* Row 1: Ticket # + status badge */}
         <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-1.5">
-            {needsReply && <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse flex-shrink-0" />}
-            <FileText className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-            <span className={cn('text-xs font-semibold text-primary', needsReply && 'font-bold')}>
+          <div className="flex items-center gap-1.5 min-w-0">
+            {needsReply && (
+              <span className="h-1.5 w-1.5 bg-primary rounded-full flex-shrink-0" />
+            )}
+            <span className={cn(
+              'text-[11px] font-bold text-primary truncate',
+              !needsReply && 'text-gray-400'
+            )}>
               {ticketNum || '#'}
             </span>
             {(conv as any).ai_handled && (
-              <span className="flex items-center gap-0.5 bg-violet-100 text-violet-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              <span className="flex items-center gap-0.5 bg-violet-100 text-violet-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0">
                 <Sparkles className="w-2.5 h-2.5" />AI
               </span>
             )}
           </div>
-          <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full', statusCfg.cls)}>
+          <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ml-1', statusCfg.cls)}>
             {statusCfg.label}
           </span>
         </div>
 
-        {/* Row 2: Contact name + channel icon */}
-        <div className="flex items-center justify-between mb-1">
-          <p className={cn('text-sm text-gray-900 truncate', needsReply ? 'font-bold' : 'font-medium')}>
+        {/* Row 2: Contact name + channel + agent */}
+        <div className="flex items-center justify-between mb-1 gap-2">
+          <p className={cn(
+            'text-[13px] text-gray-900 truncate',
+            needsReply ? 'font-semibold' : 'font-medium'
+          )}>
             {contactName}
           </p>
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <ChannelIcon className={cn('w-3 h-3', channelColor)} />
+            <ChannelIcon className={cn('w-3 h-3 flex-shrink-0', channelColor)} />
             {assignedAgent ? (
-              <div className="h-5 w-5 rounded-full bg-primary text-white text-[9px] flex items-center justify-center font-semibold">
+              <div className="h-5 w-5 rounded-full bg-primary text-white text-[9px] flex items-center justify-center font-bold flex-shrink-0">
                 {getInitials(assignedAgent.full_name)}
               </div>
             ) : (
-              <span className="text-[10px] text-gray-400">-</span>
+              <div className="h-5 w-5 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <span className="text-[9px] text-gray-400">–</span>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Row 3: Last message */}
-        <p className="text-xs text-gray-500 truncate mb-1">
+        {/* Row 3: Last message preview */}
+        <p className="text-[12px] text-gray-400 truncate leading-relaxed">
           {conv.latest_message || 'No messages yet'}
         </p>
 
-        {/* Row 4: Time */}
-        <p className="text-[11px] text-gray-400">
-          {conv.latest_message_at ? formatTimeAgo(conv.latest_message_at) : formatTimeAgo(conv.created_at)}
-        </p>
+        {/* Row 4: Labels + timestamp */}
+        <div className="flex items-center justify-between mt-1.5 gap-2">
+          <div className="flex items-center gap-1">
+            {labels.slice(0, 4).map(label => (
+              <span
+                key={label.id}
+                title={label.name}
+                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                style={{ backgroundColor: label.color }}
+              />
+            ))}
+            {labels.length > 4 && (
+              <span className="text-[9px] text-gray-400 font-semibold">+{labels.length - 4}</span>
+            )}
+          </div>
+          <p className="text-[11px] text-gray-400 flex-shrink-0 tabular-nums">
+            {conv.latest_message_at ? formatTimeAgo(conv.latest_message_at) : formatTimeAgo(conv.created_at)}
+          </p>
+        </div>
       </div>
     </div>
   )
 }
 
 export default function ConversationList() {
-  const { conversations, selectedId, setSelectedId, activeView, activeFilter, setActiveFilter, counts, loading, refresh } = useConversations()
+  const {
+    conversations, selectedId, setSelectedId,
+    activeView, activeFilter, setActiveFilter,
+    activeLabelId, setActiveLabelId, orgLabels,
+    counts, loading, refresh
+  } = useConversations()
   const { profile, organization } = useAuth()
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [sortBy, setSortBy] = useState<SortType>('newest')
   const [showSortMenu, setShowSortMenu] = useState(false)
+  const [showLabelFilter, setShowLabelFilter] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [agents, setAgents] = useState<any[]>([])
   const [selectedAgent, setSelectedAgent] = useState('')
@@ -121,11 +158,10 @@ export default function ConversationList() {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { fetchAgents() }, [organization?.id])
-  useEffect(() => { setDisplayCount(20); setSelected(new Set()) }, [activeView, activeFilter, search, sortBy])
+  useEffect(() => { setDisplayCount(20); setSelected(new Set()) }, [activeView, activeFilter, activeLabelId, search, sortBy])
 
   const fetchAgents = async () => {
     if (!organization) return
-    // BUG FIX: scope agents to current organization only
     const { data } = await supabase
       .from('agent_profiles')
       .select('id, full_name')
@@ -136,10 +172,8 @@ export default function ConversationList() {
   }
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
-
-  // Filter by view
-  // BUG FIX: Use assigned_agent?.id (from join) OR raw assigned_agent_id — both for safety
   const getAgentId = (conv: Conversation) => (conv.assigned_agent as any)?.id || (conv as any).assigned_agent_id || null
+
   const viewFiltered = conversations.filter(conv => {
     const agentId = getAgentId(conv)
     switch (activeView) {
@@ -154,22 +188,25 @@ export default function ConversationList() {
     }
   })
 
-  // Filter by status tab
   const statusFiltered = viewFiltered.filter(c => activeFilter === 'all' || c.status === activeFilter)
 
-  // Sort
+  const labelFiltered = !activeLabelId
+    ? statusFiltered
+    : statusFiltered.filter(c => {
+      const labels: Label[] = (c as any).labels || []
+      return labels.some(l => l.id === activeLabelId)
+    })
+
   const sortGroup = (arr: Conversation[]) => {
     if (sortBy === 'unread') return [...arr].sort((a, b) => (b.unread_count || 0) - (a.unread_count || 0))
     if (sortBy === 'oldest') return [...arr].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
     return [...arr].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
   }
 
-  // Split into needs reply vs replied (like Markaz)
-  const needsReply = statusFiltered.filter(c => c.latest_message_sender !== 'agent' && c.status !== 'resolved')
-  const replied = statusFiltered.filter(c => c.latest_message_sender === 'agent' || c.status === 'resolved')
+  const needsReply = labelFiltered.filter(c => c.latest_message_sender !== 'agent' && c.status !== 'resolved')
+  const replied = labelFiltered.filter(c => c.latest_message_sender === 'agent' || c.status === 'resolved')
   const sorted = [...sortGroup(needsReply), ...sortGroup(replied)]
 
-  // Search filter
   const filtered = sorted.filter(c => {
     if (!search) return true
     const name = c.contact?.name || c.contact?.phone || c.contact?.email || ''
@@ -181,7 +218,6 @@ export default function ConversationList() {
 
   const displayed = filtered.slice(0, displayCount)
 
-  // Scroll pagination
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -239,29 +275,90 @@ export default function ConversationList() {
     } catch { toast.error('Failed to resolve') } finally { setActing(false) }
   }
 
-  const SORT_LABELS: Record<SortType, string> = { newest: 'Newest First', oldest: 'Oldest First', unread: 'Unread Messages' }
+  const SORT_LABELS: Record<SortType, string> = { newest: 'Newest First', oldest: 'Oldest First', unread: 'Unread First' }
+  const activeLabel = orgLabels.find(l => l.id === activeLabelId)
 
   return (
-    <div className="w-[380px] bg-white border-r border-gray-200 flex flex-col h-full flex-shrink-0">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xl font-bold text-foreground">Tickets</h2>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" onClick={() => setSearchOpen(!searchOpen)}>
+    <div className="w-[340px] bg-white border-r border-gray-100 flex flex-col h-full flex-shrink-0">
+
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="px-4 pt-4 pb-3 border-b border-gray-100 space-y-3">
+
+        {/* Title + icons */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="text-[15px] font-bold text-gray-900">Tickets</h2>
+            <span className="text-[11px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full tabular-nums">
+              {filtered.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => setSearchOpen(!searchOpen)}
+              className={cn(
+                'p-2 rounded-lg transition-colors',
+                searchOpen ? 'bg-primary/10 text-primary' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+              )}
+            >
               <Search className="h-4 w-4" />
-            </Button>
+            </button>
+
+            {/* Label filter */}
             <div className="relative">
-              <Button variant="ghost" size="icon" onClick={() => setShowSortMenu(!showSortMenu)}>
+              <button
+                onClick={() => setShowLabelFilter(!showLabelFilter)}
+                className={cn(
+                  'p-2 rounded-lg transition-colors',
+                  activeLabelId ? 'bg-primary/10 text-primary' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                )}
+              >
+                <Tag className="h-4 w-4" />
+              </button>
+              {showLabelFilter && (
+                <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-gray-100">
+                    <span className="text-xs font-bold text-gray-600">Filter by Label</span>
+                  </div>
+                  <button
+                    onClick={() => { setActiveLabelId(null); setShowLabelFilter(false) }}
+                    className={cn('w-full flex items-center justify-between px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors', !activeLabelId && 'text-primary font-semibold')}
+                  >
+                    <span>All Labels</span>
+                    {!activeLabelId && <Check className="w-4 h-4" />}
+                  </button>
+                  {orgLabels.map(label => (
+                    <button
+                      key={label.id}
+                      onClick={() => { setActiveLabelId(label.id === activeLabelId ? null : label.id); setShowLabelFilter(false) }}
+                      className={cn('w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors', activeLabelId === label.id && 'bg-gray-50 font-semibold')}
+                    >
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: label.color }} />
+                      <span className="flex-1 text-left">{label.name}</span>
+                      {activeLabelId === label.id && <Check className="w-4 h-4 text-primary" />}
+                    </button>
+                  ))}
+                  {orgLabels.length === 0 && (
+                    <p className="px-3 py-4 text-xs text-gray-400 text-center">No labels yet</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Sort */}
+            <div className="relative">
+              <button
+                onClick={() => setShowSortMenu(!showSortMenu)}
+                className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+              >
                 <SlidersHorizontal className="h-4 w-4" />
-              </Button>
+              </button>
               {showSortMenu && (
-                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
+                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
                   {(['newest', 'oldest', 'unread'] as SortType[]).map(s => (
                     <button key={s} onClick={() => { setSortBy(s); setShowSortMenu(false) }}
-                      className="w-full flex items-center justify-between px-4 py-2 text-sm hover:bg-gray-50">
-                      <span>{SORT_LABELS[s]}</span>
-                      {sortBy === s && <Check className="h-4 w-4 text-primary" />}
+                      className="w-full flex items-center justify-between px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors">
+                      <span className="text-gray-700">{SORT_LABELS[s]}</span>
+                      {sortBy === s && <Check className="h-3.5 w-3.5 text-primary" />}
                     </button>
                   ))}
                 </div>
@@ -270,34 +367,52 @@ export default function ConversationList() {
           </div>
         </div>
 
+        {/* Search input */}
         {searchOpen && (
-          <input
-            autoFocus
-            placeholder="Search tickets..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full mb-3 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"
-          />
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <input
+              autoFocus
+              placeholder="Search tickets, contacts…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-primary transition-colors"
+            />
+          </div>
+        )}
+
+        {/* Active label pill */}
+        {activeLabel && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">Label:</span>
+            <span
+              className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full text-white"
+              style={{ backgroundColor: activeLabel.color }}
+            >
+              {activeLabel.name}
+              <button onClick={() => setActiveLabelId(null)} className="hover:opacity-70">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          </div>
         )}
 
         {/* Status filter */}
-        <div className="flex gap-2 mb-3">
-          <select
-            value={activeFilter}
-            onChange={e => setActiveFilter(e.target.value as ConversationStatus | 'all')}
-            className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 hover:border-primary focus:border-primary outline-none"
-          >
-            <option value="all">All Status</option>
-            <option value="open">Open</option>
-            <option value="in_progress">In Progress</option>
-            <option value="pending">Pending</option>
-            <option value="resolved">Resolved</option>
-          </select>
-        </div>
+        <select
+          value={activeFilter}
+          onChange={e => setActiveFilter(e.target.value as ConversationStatus | 'all')}
+          className="w-full text-[13px] border border-gray-200 rounded-lg px-3 py-2 hover:border-primary focus:border-primary outline-none transition-colors text-gray-700 bg-white"
+        >
+          <option value="all">All Statuses</option>
+          <option value="open">Open</option>
+          <option value="in_progress">In Progress</option>
+          <option value="pending">Pending</option>
+          <option value="resolved">Resolved</option>
+        </select>
 
-        {/* Bulk select */}
+        {/* Bulk select row */}
         {filtered.length > 0 && (
-          <div className="space-y-2 pt-2 border-t border-gray-200">
+          <div className="space-y-2 pt-1 border-t border-gray-100">
             <select
               onChange={e => {
                 const val = e.target.value
@@ -307,56 +422,62 @@ export default function ConversationList() {
                 e.target.value = 'placeholder'
               }}
               defaultValue="placeholder"
-              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 hover:border-primary outline-none"
+              className="w-full text-[13px] border border-gray-200 rounded-lg px-3 py-2 hover:border-primary outline-none text-gray-700 bg-white transition-colors"
             >
-              <option value="placeholder" disabled>Select Tickets...</option>
-              <option value="0">Deselect All</option>
+              <option value="placeholder" disabled>Select tickets…</option>
+              <option value="0">Deselect all</option>
               <option value="20">Select 20</option>
               <option value="50">Select 50</option>
-              <option value="-1">Select All ({filtered.length})</option>
+              <option value="-1">Select all ({filtered.length})</option>
             </select>
 
             {selected.size > 0 && (
               <div className="flex items-center gap-2">
-                <select value={selectedAgent} onChange={e => setSelectedAgent(e.target.value)}
-                  className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 hover:border-primary outline-none">
-                  <option value="">Select Agent</option>
+                <select
+                  value={selectedAgent}
+                  onChange={e => setSelectedAgent(e.target.value)}
+                  className="flex-1 text-[13px] border border-gray-200 rounded-lg px-3 py-2 hover:border-primary outline-none bg-white transition-colors"
+                >
+                  <option value="">Select agent</option>
                   <option value="unassign">Unassign</option>
                   {agents.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
                 </select>
-                <Button size="sm" onClick={handleBulkAssign} disabled={!selectedAgent || acting}>
-                  {acting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Assign'}
+                <Button size="sm" onClick={handleBulkAssign} disabled={!selectedAgent || acting} className="text-xs">
+                  {acting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Assign'}
                 </Button>
                 <Button size="sm" onClick={handleBulkResolve} disabled={acting}
-                  className="bg-green-600 hover:bg-green-700 text-white whitespace-nowrap">
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs whitespace-nowrap">
                   Resolve
                 </Button>
               </div>
             )}
 
             {selected.size > 0 && (
-              <p className="text-xs text-muted-foreground">{selected.size} ticket{selected.size !== 1 ? 's' : ''} selected</p>
+              <p className="text-[11px] text-gray-400">{selected.size} ticket{selected.size !== 1 ? 's' : ''} selected</p>
             )}
           </div>
         )}
 
-        <div className="flex justify-between items-center mt-2">
-          <p className="text-xs text-muted-foreground">Sorted by: {SORT_LABELS[sortBy]}</p>
-          <p className="text-xs text-muted-foreground">Showing {displayed.length} of {filtered.length}</p>
+        {/* Sort info */}
+        <div className="flex justify-between items-center">
+          <p className="text-[11px] text-gray-400">{SORT_LABELS[sortBy]}</p>
+          <p className="text-[11px] text-gray-400">{displayed.length} of {filtered.length}</p>
         </div>
       </div>
 
-      {/* List */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto divide-y divide-gray-100">
+      {/* ── List ───────────────────────────────────────────────── */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center p-6">
-            <FileText className="h-12 w-12 text-gray-300 mb-3" />
-            <p className="text-foreground font-medium">No tickets found</p>
-            <p className="text-sm text-muted-foreground mt-1">Try adjusting filters</p>
+            <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
+              <FileText className="h-5 w-5 text-gray-300" />
+            </div>
+            <p className="text-sm font-semibold text-gray-500">No tickets found</p>
+            <p className="text-xs text-gray-400 mt-1">Try adjusting your filters</p>
           </div>
         ) : (
           <>
@@ -372,7 +493,7 @@ export default function ConversationList() {
             ))}
             {displayCount < filtered.length && (
               <div className="p-4 flex justify-center">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <Loader2 className="h-4 w-4 animate-spin text-gray-300" />
               </div>
             )}
           </>

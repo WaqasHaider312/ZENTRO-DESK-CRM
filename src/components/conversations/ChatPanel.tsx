@@ -582,20 +582,22 @@ export default function ChatPanel({ onToggleInfo, showInfo }: ChatPanelProps) {
     <div className="flex-1 flex flex-col min-w-0 h-full bg-white overflow-hidden">
 
       {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-5 h-14 border-b border-gray-200 flex-shrink-0 bg-white">
-        <div className="flex items-center gap-3 min-w-0">
-          <h2 className="text-lg font-bold text-gray-900">{ticketNum || contactName}</h2>
-          <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-md font-medium">
+      <div className="flex items-center justify-between px-4 h-14 border-b border-gray-200 flex-shrink-0 bg-white gap-3">
+        {/* Left: ticket info */}
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <h2 className="text-[15px] font-bold text-gray-900 flex-shrink-0">{ticketNum || contactName}</h2>
+          <span className="hidden sm:block bg-gray-100 text-gray-500 text-[11px] px-2 py-0.5 rounded-md font-medium whitespace-nowrap truncate max-w-[180px]">
             {CHANNEL_LABELS[channelType]} · {conversation.inbox?.name}
           </span>
           {(conversation as any).ai_handled && (
-            <span className="flex items-center gap-1 bg-violet-100 text-violet-700 text-xs font-bold px-2 py-0.5 rounded-full">
-              <Sparkles className="w-3 h-3" />AI Handling
+            <span className="flex items-center gap-1 bg-violet-100 text-violet-700 text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
+              <Sparkles className="w-3 h-3" />AI
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Right: actions */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           {/* Assign dropdown */}
           <div className="relative">
             <Button

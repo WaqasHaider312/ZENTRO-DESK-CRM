@@ -40,14 +40,25 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // Zentro brand color
+        // Zentro brand color — Ink & Emerald
         brand: {
-          DEFAULT: '#6366f1',
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
+          DEFAULT: '#059669',
+          50: '#ecfdf5',
+          100: '#d1fae5',
+          400: '#34d399',
+          500: '#10b981',
+          600: '#059669',
+          700: '#047857',
+          800: '#065f46',
+        },
+        // Dark sidebar tokens
+        sidebar: {
+          DEFAULT: '#111827',
+          hover: '#1F2937',
+          active: '#064E3B',
+          border: '#1F2937',
+          text: '#9CA3AF',
+          'text-active': '#34D399',
         },
       },
       borderRadius: {
