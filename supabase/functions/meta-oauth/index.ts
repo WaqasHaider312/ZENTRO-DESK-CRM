@@ -18,77 +18,144 @@ Deno.serve(async (req) => {
         const body = await req.json()
         const { action } = body
 
-        // ── Exchange token ────────────────────────────────────────────
+        // ── Exchange token (Facebook / Instagram) ─────────────────────
         if (action === 'exchange_token') {
             const { code, redirect_uri } = body
             console.log('exchange_token — redirect_uri:', redirect_uri)
+
+            const tokenRes = await fetch(
+                `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${APP_ID}&redirect_uri=${encodeURIComponent(redirect_uri)}&client_secret=${APP_SECRET}&code=${code}`
+            )
+            const tokenData = await tokenRes.json()
+            if (tokenData.error) return new Response(JSON.stringify({ error: tokenData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+
+            const longRes = await fetch(
+                `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${tokenData.access_token}`
+            )
+            const longData = await longRes.json()
+            if (longData.error) return new Response(JSON.stringify({ error: longData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+
+            const pagesRes = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${longData.access_token}`)
+            const pagesData = await pagesRes.json()
+
+            return new Response(JSON.stringify({
+                long_lived_token: longData.access_token,
+                pages: pagesData.data || [],
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+
+        // ── Exchange token (WhatsApp) ──────────────────────────────────
+        if (action === 'exchange_token_whatsapp') {
+            const { code, redirect_uri } = body
+            console.log('exchange_token_whatsapp — redirect_uri:', redirect_uri)
 
             // Short-lived token
             const tokenRes = await fetch(
                 `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${APP_ID}&redirect_uri=${encodeURIComponent(redirect_uri)}&client_secret=${APP_SECRET}&code=${code}`
             )
             const tokenData = await tokenRes.json()
-            console.log('Short-lived token result:', JSON.stringify(tokenData))
-
-            if (tokenData.error) {
-                return new Response(JSON.stringify({ error: tokenData.error.message, details: tokenData.error }), {
-                    status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-                })
-            }
+            if (tokenData.error) return new Response(JSON.stringify({ error: tokenData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
             // Long-lived token
             const longRes = await fetch(
                 `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${tokenData.access_token}`
             )
             const longData = await longRes.json()
-            console.log('Long-lived token result:', JSON.stringify(longData))
+            if (longData.error) return new Response(JSON.stringify({ error: longData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-            if (longData.error) {
-                return new Response(JSON.stringify({ error: longData.error.message }), {
-                    status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-                })
+            const userToken = longData.access_token
+
+            // Get all WABAs the user has access to via their businesses
+            const bizRes = await fetch(`https://graph.facebook.com/v19.0/me/businesses?fields=id,name&access_token=${userToken}`)
+            const bizData = await bizRes.json()
+            console.log('Businesses:', JSON.stringify(bizData))
+
+            const phoneNumbers: any[] = []
+
+            const businesses = bizData.data || []
+            for (const biz of businesses) {
+                // Get WABAs for this business
+                const wabaRes = await fetch(`https://graph.facebook.com/v19.0/${biz.id}/whatsapp_business_accounts?access_token=${userToken}`)
+                const wabaData = await wabaRes.json()
+                const wabas = wabaData.data || []
+
+                for (const waba of wabas) {
+                    // Get phone numbers for this WABA
+                    const numRes = await fetch(`https://graph.facebook.com/v19.0/${waba.id}/phone_numbers?fields=display_phone_number,verified_name,status,quality_rating&access_token=${userToken}`)
+                    const numData = await numRes.json()
+                    const nums = numData.data || []
+
+                    for (const num of nums) {
+                        phoneNumbers.push({
+                            id: num.id,
+                            display_phone_number: num.display_phone_number,
+                            verified_name: num.verified_name,
+                            status: num.status || 'UNKNOWN',
+                            waba_id: waba.id,
+                            access_token: userToken,
+                        })
+                    }
+                }
             }
 
-            // Get pages
-            const pagesRes = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${longData.access_token}`)
-            const pagesData = await pagesRes.json()
-            console.log('Pages result:', JSON.stringify(pagesData))
+            console.log(`Found ${phoneNumbers.length} WhatsApp numbers`)
 
             return new Response(JSON.stringify({
-                long_lived_token: longData.access_token,
-                pages: pagesData.data || [],
-                pages_error: pagesData.error || null,
+                phone_numbers: phoneNumbers,
+                access_token: userToken,
             }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
 
-        // ── Connect Facebook Page ─────────────────────────────────────
+        // ── Connect WhatsApp ───────────────────────────────────────────
+        if (action === 'connect_whatsapp') {
+            const { phone_number_id, phone_number, verified_name, waba_id, organization_id, inbox_name, access_token } = body
+
+            // Register webhook subscription for this WABA
+            if (access_token && waba_id) {
+                const subRes = await fetch(`https://graph.facebook.com/v19.0/${waba_id}/subscribed_apps`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ access_token }),
+                })
+                const subData = await subRes.json()
+                console.log('WABA subscription result:', JSON.stringify(subData))
+            }
+
+            const { data: inbox, error } = await supabase.from('inboxes').upsert({
+                organization_id,
+                name: inbox_name || verified_name || phone_number,
+                channel_type: 'whatsapp',
+                wa_phone_number_id: phone_number_id,
+                wa_phone_number: phone_number,
+                wa_waba_id: waba_id,
+                wa_access_token: access_token || null,
+                is_active: true,
+            }, { onConflict: 'organization_id,wa_phone_number_id', ignoreDuplicates: false }).select().single()
+
+            if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            return new Response(JSON.stringify({ inbox }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+
+        // ── Connect Facebook Page ──────────────────────────────────────
         if (action === 'connect_facebook_page') {
             const { page_id, page_name, page_access_token, organization_id, inbox_name } = body
 
             await fetch(`https://graph.facebook.com/v19.0/${page_id}/subscribed_apps`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    subscribed_fields: ['messages', 'messaging_postbacks', 'messaging_referrals'],
-                    access_token: page_access_token,
-                })
+                body: JSON.stringify({ subscribed_fields: ['messages', 'messaging_postbacks', 'messaging_referrals'], access_token: page_access_token })
             })
 
             const { data: inbox, error } = await supabase.from('inboxes').upsert({
-                organization_id,
-                name: inbox_name || page_name,
-                channel_type: 'facebook',
-                fb_page_id: page_id,
-                fb_page_name: page_name,
-                fb_access_token: page_access_token,
-                is_active: true,
+                organization_id, name: inbox_name || page_name, channel_type: 'facebook',
+                fb_page_id: page_id, fb_page_name: page_name, fb_access_token: page_access_token, is_active: true,
             }, { onConflict: 'organization_id,fb_page_id,channel_type', ignoreDuplicates: false }).select().single()
 
             if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             return new Response(JSON.stringify({ inbox }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
 
-        // ── Connect Instagram ─────────────────────────────────────────
+        // ── Connect Instagram ──────────────────────────────────────────
         if (action === 'connect_instagram') {
             const { page_id, page_access_token, organization_id, inbox_name } = body
 
@@ -96,11 +163,7 @@ Deno.serve(async (req) => {
             const igData = await igRes.json()
             const igAccountId = igData.instagram_business_account?.id
 
-            if (!igAccountId) {
-                return new Response(JSON.stringify({ error: 'No Instagram Business account linked to this Facebook Page.' }), {
-                    status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-                })
-            }
+            if (!igAccountId) return new Response(JSON.stringify({ error: 'No Instagram Business account linked to this Facebook Page.' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
             await fetch(`https://graph.facebook.com/v19.0/${page_id}/subscribed_apps`, {
                 method: 'POST',
@@ -109,20 +172,15 @@ Deno.serve(async (req) => {
             })
 
             const { data: inbox, error } = await supabase.from('inboxes').upsert({
-                organization_id,
-                name: inbox_name || 'Instagram',
-                channel_type: 'instagram',
-                fb_page_id: page_id,
-                fb_access_token: page_access_token,
-                ig_account_id: igAccountId,
-                is_active: true,
+                organization_id, name: inbox_name || 'Instagram', channel_type: 'instagram',
+                fb_page_id: page_id, fb_access_token: page_access_token, ig_account_id: igAccountId, is_active: true,
             }, { onConflict: 'organization_id,fb_page_id,channel_type', ignoreDuplicates: false }).select().single()
 
             if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             return new Response(JSON.stringify({ inbox }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
 
-        // ── Disconnect ────────────────────────────────────────────────
+        // ── Disconnect ─────────────────────────────────────────────────
         if (action === 'disconnect_inbox') {
             const { inbox_id, organization_id } = body
             const { error } = await supabase.from('inboxes').update({ is_active: false }).eq('id', inbox_id).eq('organization_id', organization_id)
