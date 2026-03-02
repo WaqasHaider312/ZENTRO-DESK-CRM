@@ -68,49 +68,49 @@ Deno.serve(async (req) => {
             const userToken = longData.access_token
             const phoneNumbers: any[] = []
 
-            // Strategy 1: Direct WABAs on the user token
-            const directWabaRes = await fetch(`https://graph.facebook.com/v19.0/me/whatsapp_business_accounts?access_token=${userToken}`)
-            const directWabaData = await directWabaRes.json()
-            console.log('Direct WABAs:', JSON.stringify(directWabaData))
+            const seenWabaIds = new Set<string>()
 
-            for (const waba of (directWabaData.data || [])) {
-                const numRes = await fetch(`https://graph.facebook.com/v19.0/${waba.id}/phone_numbers?fields=display_phone_number,verified_name,status,quality_rating&access_token=${userToken}`)
+            const fetchNumbersFromWaba = async (wabaId: string) => {
+                if (seenWabaIds.has(wabaId)) return
+                seenWabaIds.add(wabaId)
+                const numRes = await fetch(`https://graph.facebook.com/v19.0/${wabaId}/phone_numbers?fields=display_phone_number,verified_name,status,quality_rating&access_token=${userToken}`)
                 const numData = await numRes.json()
-                console.log(`WABA ${waba.id} numbers:`, JSON.stringify(numData))
+                console.log(`WABA ${wabaId} phone_numbers:`, JSON.stringify(numData))
                 for (const num of (numData.data || [])) {
                     phoneNumbers.push({
                         id: num.id,
                         display_phone_number: num.display_phone_number,
                         verified_name: num.verified_name,
                         status: num.status || 'CONNECTED',
-                        waba_id: waba.id,
+                        waba_id: wabaId,
                         access_token: userToken,
                     })
                 }
             }
 
-            // Strategy 2: Via businesses (fallback if strategy 1 returned nothing)
+            // Strategy 1: Get businesses, then WABAs under each business
+            const bizRes = await fetch(`https://graph.facebook.com/v19.0/me/businesses?fields=id,name&access_token=${userToken}`)
+            const bizData = await bizRes.json()
+            console.log('Businesses:', JSON.stringify(bizData))
+
+            for (const biz of (bizData.data || [])) {
+                const wabaRes = await fetch(`https://graph.facebook.com/v19.0/${biz.id}/whatsapp_business_accounts?fields=id,name&access_token=${userToken}`)
+                const wabaData = await wabaRes.json()
+                console.log(`Biz ${biz.id} whatsapp_business_accounts:`, JSON.stringify(wabaData))
+                for (const waba of (wabaData.data || [])) await fetchNumbersFromWaba(waba.id)
+            }
+
+            // Strategy 2: Get WABAs the token user directly has access to
             if (phoneNumbers.length === 0) {
-                const bizRes = await fetch(`https://graph.facebook.com/v19.0/me/businesses?fields=id,name&access_token=${userToken}`)
-                const bizData = await bizRes.json()
-                console.log('Businesses fallback:', JSON.stringify(bizData))
-                for (const biz of (bizData.data || [])) {
-                    const wabaRes = await fetch(`https://graph.facebook.com/v19.0/${biz.id}/whatsapp_business_accounts?access_token=${userToken}`)
-                    const wabaData = await wabaRes.json()
-                    for (const waba of (wabaData.data || [])) {
-                        const numRes = await fetch(`https://graph.facebook.com/v19.0/${waba.id}/phone_numbers?fields=display_phone_number,verified_name,status&access_token=${userToken}`)
-                        const numData = await numRes.json()
-                        for (const num of (numData.data || [])) {
-                            phoneNumbers.push({
-                                id: num.id,
-                                display_phone_number: num.display_phone_number,
-                                verified_name: num.verified_name,
-                                status: num.status || 'CONNECTED',
-                                waba_id: waba.id,
-                                access_token: userToken,
-                            })
-                        }
-                    }
+                const userRes = await fetch(`https://graph.facebook.com/v19.0/me?fields=id&access_token=${userToken}`)
+                const userData = await userRes.json()
+                console.log('User:', JSON.stringify(userData))
+                if (userData.id) {
+                    // Try getting WABAs via user ID directly
+                    const userWabaRes = await fetch(`https://graph.facebook.com/v19.0/${userData.id}/whatsapp_business_accounts?fields=id,name&access_token=${userToken}`)
+                    const userWabaData = await userWabaRes.json()
+                    console.log('User WABAs:', JSON.stringify(userWabaData))
+                    for (const waba of (userWabaData.data || [])) await fetchNumbersFromWaba(waba.id)
                 }
             }
 

@@ -44,6 +44,10 @@ export default function Inboxes() {
   const [selectedNumber, setSelectedNumber] = useState<WhatsAppNumber | null>(null)
   const [inboxName, setInboxName] = useState('')
   const [oauthStep, setOauthStep] = useState<'connect' | 'select' | 'done'>('connect')
+  const [showManual, setShowManual] = useState(false)
+  const [manualPhoneNumberId, setManualPhoneNumberId] = useState('')
+  const [manualWabaId, setManualWabaId] = useState('')
+  const [manualPhone, setManualPhone] = useState('')
 
   useEffect(() => {
     fetchInboxes()
@@ -73,6 +77,7 @@ export default function Inboxes() {
     setPages([]); setSelectedPage(null)
     setWaNumbers([]); setSelectedNumber(null)
     setInboxName('')
+    setShowManual(false); setManualPhoneNumberId(''); setManualWabaId(''); setManualPhone('')
   }
 
   const createWidgetInbox = async () => {
@@ -168,6 +173,30 @@ export default function Inboxes() {
       setOauthStep('done'); toast.success('WhatsApp connected!'); fetchInboxes()
       setTimeout(() => setModal(null), 2000)
     } catch (err: any) { toast.error(err.message || 'Failed to connect WhatsApp') }
+    finally { setConnecting(false) }
+  }
+
+  const connectWhatsAppManual = async () => {
+    if (!manualPhoneNumberId || !manualWabaId || !organization) return
+    setConnecting(true)
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'connect_whatsapp',
+          phone_number_id: manualPhoneNumberId,
+          phone_number: manualPhone,
+          verified_name: inboxName,
+          waba_id: manualWabaId,
+          organization_id: organization.id,
+          inbox_name: inboxName || manualPhone || manualPhoneNumberId,
+        })
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setOauthStep('done'); toast.success('WhatsApp connected!'); fetchInboxes()
+      setTimeout(() => setModal(null), 2000)
+    } catch (err: any) { toast.error(err.message || 'Failed to connect') }
     finally { setConnecting(false) }
   }
 
@@ -391,40 +420,86 @@ export default function Inboxes() {
               )}
               {oauthStep === 'select' && (
                 <div>
-                  <p className="text-sm text-muted-foreground mb-4">Select a WhatsApp Business number to connect:</p>
-                  <div className="space-y-2 mb-4 max-h-52 overflow-y-auto">
-                    {waNumbers.length === 0 && (
-                      <div className="text-center py-6">
-                        <Phone className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">No WhatsApp Business numbers found.</p>
-                        <p className="text-xs text-muted-foreground mt-1">Make sure your phone number is added to a WhatsApp Business Account in Meta Business Manager.</p>
-                      </div>
-                    )}
-                    {waNumbers.map(num => (
-                      <button key={num.id} onClick={() => { setSelectedNumber(num); setInboxName(num.verified_name || num.display_phone_number) }}
-                        className={cn('w-full text-left p-3 rounded-lg border transition-colors', selectedNumber?.id === num.id ? 'border-green-500 bg-green-50' : 'border-border hover:border-green-300')}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-sm">{num.verified_name || 'Business'}</p>
-                            <p className="text-xs text-muted-foreground">{num.display_phone_number}</p>
+                  {!showManual ? (
+                    <>
+                      <p className="text-sm text-muted-foreground mb-3">Select a WhatsApp Business number to connect:</p>
+                      <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+                        {waNumbers.length === 0 ? (
+                          <div className="text-center py-5 bg-amber-50 border border-amber-200 rounded-lg">
+                            <p className="text-sm font-medium text-amber-800 mb-1">No numbers found via API</p>
+                            <p className="text-xs text-amber-700">This can happen when the app is pending Meta review.</p>
+                            <button onClick={() => setShowManual(true)} className="mt-2 text-xs text-green-700 font-semibold underline">
+                              Enter details manually →
+                            </button>
                           </div>
-                          <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', num.status === 'VERIFIED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
-                            {num.status}
-                          </span>
+                        ) : (
+                          waNumbers.map(num => (
+                            <button key={num.id} onClick={() => { setSelectedNumber(num); setInboxName(num.verified_name || num.display_phone_number) }}
+                              className={cn('w-full text-left p-3 rounded-lg border transition-colors', selectedNumber?.id === num.id ? 'border-green-500 bg-green-50' : 'border-border hover:border-green-300')}>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium text-sm">{num.verified_name || 'Business'}</p>
+                                  <p className="text-xs text-muted-foreground">{num.display_phone_number}</p>
+                                </div>
+                                <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', num.status === 'VERIFIED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
+                                  {num.status}
+                                </span>
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                      {selectedNumber && (
+                        <div className="mb-4">
+                          <Label className="text-xs">Inbox Name</Label>
+                          <Input value={inboxName} onChange={e => setInboxName(e.target.value)} placeholder={selectedNumber.verified_name} className="mt-1 h-8 text-sm" />
                         </div>
-                      </button>
-                    ))}
-                  </div>
-                  {selectedNumber && (
-                    <div className="mb-4">
-                      <Label className="text-xs">Inbox Name</Label>
-                      <Input value={inboxName} onChange={e => setInboxName(e.target.value)} placeholder={selectedNumber.verified_name || selectedNumber.display_phone_number} className="mt-1 h-8 text-sm" />
-                    </div>
+                      )}
+                      {waNumbers.length > 0 && (
+                        <Button className="w-full bg-green-600 hover:bg-green-700" onClick={connectWhatsApp} disabled={!selectedNumber || connecting}>
+                          {connecting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                          Connect {selectedNumber?.display_phone_number || 'Number'}
+                        </Button>
+                      )}
+                      {waNumbers.length > 0 && (
+                        <button onClick={() => setShowManual(true)} className="w-full text-xs text-center text-muted-foreground mt-2 hover:text-foreground">
+                          Enter details manually instead
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 mb-4">
+                        <button onClick={() => setShowManual(false)} className="text-xs text-muted-foreground hover:text-foreground">← Back</button>
+                        <p className="text-sm font-medium">Manual Entry</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Find these in <strong>Meta Business Manager → WhatsApp → API Setup</strong>
+                      </p>
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-xs">Phone Number ID <span className="text-red-500">*</span></Label>
+                          <Input value={manualPhoneNumberId} onChange={e => setManualPhoneNumberId(e.target.value)} placeholder="e.g. 123456789012345" className="mt-1 h-8 text-sm font-mono" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">WhatsApp Business Account ID (WABA) <span className="text-red-500">*</span></Label>
+                          <Input value={manualWabaId} onChange={e => setManualWabaId(e.target.value)} placeholder="e.g. 987654321098765" className="mt-1 h-8 text-sm font-mono" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Phone Number (display)</Label>
+                          <Input value={manualPhone} onChange={e => setManualPhone(e.target.value)} placeholder="e.g. +92 307 8958033" className="mt-1 h-8 text-sm" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Inbox Name</Label>
+                          <Input value={inboxName} onChange={e => setInboxName(e.target.value)} placeholder="e.g. Vouche.UK WhatsApp" className="mt-1 h-8 text-sm" />
+                        </div>
+                      </div>
+                      <Button className="w-full bg-green-600 hover:bg-green-700 mt-4" onClick={connectWhatsAppManual} disabled={!manualPhoneNumberId || !manualWabaId || connecting}>
+                        {connecting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                        Connect WhatsApp
+                      </Button>
+                    </>
                   )}
-                  <Button className="w-full bg-green-600 hover:bg-green-700" onClick={connectWhatsApp} disabled={!selectedNumber || connecting}>
-                    {connecting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                    Connect {selectedNumber?.display_phone_number || 'Number'}
-                  </Button>
                 </div>
               )}
               {oauthStep === 'done' && (
