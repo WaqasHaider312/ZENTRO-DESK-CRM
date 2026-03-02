@@ -27,7 +27,7 @@ interface FacebookPage {
   id: string; name: string; access_token: string; category: string
 }
 interface WhatsAppNumber {
-  id: string; display_phone_number: string; verified_name: string; status: string; waba_id: string
+  id: string; display_phone_number: string; verified_name: string; status: string; waba_id: string; access_token?: string
 }
 
 type ModalType = 'facebook' | 'instagram' | 'whatsapp' | 'widget' | null
@@ -158,6 +158,7 @@ export default function Inboxes() {
           phone_number: selectedNumber.display_phone_number,
           verified_name: selectedNumber.verified_name,
           waba_id: selectedNumber.waba_id,
+          access_token: selectedNumber.access_token,
           organization_id: organization.id,
           inbox_name: inboxName || selectedNumber.verified_name || selectedNumber.display_phone_number,
         })
