@@ -433,7 +433,7 @@ async function applyAutoAssignRules(
                 // Assign the conversation
                 await supabase
                     .from('conversations')
-                    .update({ assigned_agent_id: rule.assign_to_agent_id, updated_at: new Date().toISOString() })
+                    .update({ assigned_agent_id: rule.assign_to_agent_id, ai_handled: false, updated_at: new Date().toISOString() })
                     .eq('id', conversationId)
 
                 // Log system message
@@ -473,18 +473,25 @@ async function maybeCallAiReply(supabase: any, inbox: any, conversation: any, me
 
         if (!fullInbox?.ai_enabled) return
 
-        // CRITICAL: AI must not respond if conversation was escalated or assigned to an agent
-        if (freshConv?.assigned_agent_id) {
+        // CRITICAL: Re-fetch conversation state AFTER auto-assign rules may have run
+        // (auto-assign fires before maybeCallAiReply but both are async — need latest state)
+        const { data: latestConv } = await supabase
+            .from('conversations')
+            .select('ai_handled, assigned_agent_id, status')
+            .eq('id', conversation.id)
+            .single()
+
+        if (latestConv?.assigned_agent_id) {
             console.log(`Skipping AI: conversation ${conversation.id} is assigned to an agent`)
             return
         }
-        if (freshConv?.status === 'resolved') {
+        if (latestConv?.status === 'resolved') {
             console.log(`Skipping AI: conversation ${conversation.id} is resolved`)
             return
         }
 
         // Only mark ai_handled=true for brand new conversations (not previously escalated)
-        if (!freshConv?.ai_handled) {
+        if (!latestConv?.ai_handled) {
             await supabase.from('conversations').update({ ai_handled: true }).eq('id', conversation.id)
         }
 

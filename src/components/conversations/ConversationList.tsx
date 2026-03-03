@@ -179,8 +179,8 @@ export default function ConversationList() {
     switch (activeView) {
       case 'my_open': return agentId === profile?.id && conv.status !== 'resolved' && !(conv as any).ai_handled
       case 'unassigned': return !agentId && conv.status !== 'resolved' && !(conv as any).ai_handled
-      case 'ai_handling': return !!(conv as any).ai_handled && conv.status !== 'resolved'
-      case 'all_assigned': return !!agentId && conv.status !== 'resolved' && !(conv as any).ai_handled
+      case 'ai_handling': return !!(conv as any).ai_handled && !agentId && conv.status !== 'resolved'
+      case 'all_assigned': return !!agentId && conv.status !== 'resolved'
       case 'my_resolved_today': return conv.status === 'resolved' && agentId === profile?.id && new Date(conv.updated_at) >= todayStart
       case 'all_resolved_today': return conv.status === 'resolved' && new Date(conv.updated_at) >= todayStart
       case 'all_tickets': return true

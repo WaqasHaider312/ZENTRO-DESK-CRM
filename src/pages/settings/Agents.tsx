@@ -47,36 +47,22 @@ export default function Agents() {
     if (!inviteEmail.trim() || !organization) return
     setInviting(true)
     try {
-      // Check if already exists
-      const { data: existing } = await supabase
-        .from('agent_profiles')
-        .select('id')
-        .eq('organization_id', organization.id)
-        .eq('email', inviteEmail.trim().toLowerCase())
-        .single()
-
-      if (existing) {
-        toast.error('This email is already an agent in your organization')
-        return
-      }
-
-      // Create invitation record
-      const token = crypto.randomUUID()
-      const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-
-      const { error } = await supabase.from('invitations').insert({
-        organization_id: organization.id,
-        invited_by: profile?.id,
-        email: inviteEmail.trim().toLowerCase(),
-        role: inviteRole,
-        token,
-        accepted: false,
-        expires_at: expires,
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/invite-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: inviteEmail.trim().toLowerCase(),
+          role: inviteRole,
+          organization_id: organization.id,
+          organization_name: organization.name,
+          invited_by_name: profile?.full_name || profile?.email,
+        }),
       })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
 
-      if (error) throw error
-
-      toast.success(`Invitation sent to ${inviteEmail}`)
+      toast.success(`Invite sent to ${inviteEmail}`)
       setInviteEmail('')
       setInviteRole('agent')
       setShowInvite(false)

@@ -20,6 +20,7 @@ import AISettings from '@/pages/settings/AISettings'
 import AutoAssign from '@/pages/settings/AutoAssign'
 import NotFound from '@/pages/NotFound'
 import OAuthCallback from '@/pages/OAuthCallback'
+import AcceptInvite from '@/pages/AcceptInvite'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -83,6 +84,7 @@ const AppRoutes = () => (
       </Route>
     </Route>
 
+    <Route path="/accept-invite" element={<AcceptInvite />} />
     <Route path="*" element={<NotFound />} />
   </Routes>
 )

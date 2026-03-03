@@ -93,7 +93,10 @@ export default function ContactInfoPanel({ onClose }: ContactInfoPanelProps) {
     setUpdating(true)
     try {
       const val = agentId === '' ? null : agentId
-      await supabase.from('conversations').update({ assigned_agent_id: val, updated_at: new Date().toISOString() }).eq('id', selectedId!)
+      // When assigning to an agent, always remove from AI handling
+      const updatePayload: any = { assigned_agent_id: val, updated_at: new Date().toISOString() }
+      if (val !== null) updatePayload.ai_handled = false
+      await supabase.from('conversations').update(updatePayload).eq('id', selectedId!)
       const agentName = agents.find(a => a.id === agentId)?.full_name
       await insertSystemMessage(
         val == null

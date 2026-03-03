@@ -242,7 +242,7 @@ async function applyAutoAssignRules(
             if (matched && rule.assign_to_agent_id) {
                 await supabase
                     .from('conversations')
-                    .update({ assigned_agent_id: rule.assign_to_agent_id, updated_at: new Date().toISOString() })
+                    .update({ assigned_agent_id: rule.assign_to_agent_id, ai_handled: false, updated_at: new Date().toISOString() })
                     .eq('id', conversationId)
 
                 const agentName = rule.agent?.full_name || 'an agent'
