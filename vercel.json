@@ -1,5 +1,8 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/((?!privacy.html|data-deletion.html).*)",
+      "destination": "/index.html"
+    }
   ]
 }
