@@ -1,7 +1,7 @@
 {
   "rewrites": [
     {
-      "source": "/((?!privacy.html|data-deletion.html).*)",
+      "source": "/((?!privacy.html|data-deletion.html|widget.js).*)",
       "destination": "/index.html"
     }
   ]

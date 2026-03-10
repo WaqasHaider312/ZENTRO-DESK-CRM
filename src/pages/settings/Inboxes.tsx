@@ -99,7 +99,7 @@ export default function Inboxes() {
   }
 
   const copyEmbedCode = (token: string) => {
-    const code = `<script>\n  window.ZentroWidget = { token: '${token}' };\n  (function(d,s){var js=d.createElement(s);js.src='https://zentro-desk-crm.vercel.app/widget.js';d.head.appendChild(js)})(document,'script');\n<\/script>`
+    const code = `<script>\n  window.ZentroWidget = { token: '${token}' };\n  (function(d,s){var js=d.createElement(s);js.src='https://app.zentrodesk.com/widget.js';d.head.appendChild(js)})(document,'script');\n<\/script>`
     navigator.clipboard.writeText(code)
     toast.success('Embed code copied!')
   }
@@ -303,7 +303,7 @@ export default function Inboxes() {
               {(() => {
                 const widgetInbox = inboxes.find(i => i.channel_type === 'widget')
                 const token = widgetInbox?.widget_token
-                const embedCode = token ? `<script>\n  window.ZentroWidget = { token: '${token}' };\n  (function(d,s){var js=d.createElement(s);js.src='https://zentro-desk-crm.vercel.app/widget.js';d.head.appendChild(js)})(document,'script');\n</script>` : ''
+                const embedCode = token ? `<script>\n  window.ZentroWidget = { token: '${token}' };\n  (function(d,s){var js=d.createElement(s);js.src='https://app.zentrodesk.com/widget.js';d.head.appendChild(js)})(document,'script');\n</script>` : ''
                 return (
                   <>
                     <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
