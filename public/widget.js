@@ -2,7 +2,7 @@
     if (!window.ZentroWidget || !window.ZentroWidget.token) return;
 
     var token = window.ZentroWidget.token;
-    var baseUrl = 'https://zentro-desk-crm.vercel.app';
+    var baseUrl = 'https://app.zentrodesk.com';
 
     // Inject iframe
     var iframe = document.createElement('iframe');
