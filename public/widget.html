@@ -470,7 +470,7 @@
             }).catch(function () { });
 
             // Restore session
-            var saved = sessionStorage.getItem('zentro_widget_' + token);
+            var saved = localStorage.getItem('zentro_widget_' + token);
             if (saved) {
                 try {
                     var s = JSON.parse(saved);
@@ -490,7 +490,11 @@
                 bubble.classList.add('open');
                 chat.classList.add('visible');
                 window.parent.postMessage({ source: 'zentro-widget', type: 'resize', open: true }, '*');
-                if (conversationId) startPolling();
+                if (conversationId) {
+                    // Always reload messages fresh when reopening
+                    fetchMessages(true);
+                    startPolling();
+                }
             }
 
             function closeChat() {
@@ -533,7 +537,7 @@
                     if (d.error) { errEl.textContent = d.error; btn.disabled = false; btn.textContent = 'Start Chat'; return; }
                     conversationId = d.conversation_id;
                     visitorId = d.visitor_id;
-                    sessionStorage.setItem('zentro_widget_' + token, JSON.stringify({ conversationId: conversationId, visitorId: visitorId }));
+                    localStorage.setItem('zentro_widget_' + token, JSON.stringify({ conversationId: conversationId, visitorId: visitorId, name: name, email: email }));
                     showMessages();
                     appendMessage({ content: msg, is_visitor: true, created_at: new Date().toISOString() });
                     lastMsgTime = new Date().toISOString();
@@ -552,6 +556,8 @@
                 fetchMessages(true);
             }
 
+            var renderedIds = new Set();
+
             function fetchMessages(initial) {
                 if (!conversationId) return;
                 fetch(API, {
@@ -560,9 +566,17 @@
                     body: JSON.stringify({ action: 'get_messages', conversation_id: conversationId, visitor_id: visitorId, after: initial ? null : lastMsgTime })
                 }).then(r => r.json()).then(function (d) {
                     if (!d.messages) return;
+                    if (initial) {
+                        // Clear messages area and re-render all from DB (source of truth)
+                        document.getElementById('messages').innerHTML = '';
+                        renderedIds.clear();
+                    }
                     d.messages.forEach(function (m) {
-                        // Skip visitor messages on initial load (already shown optimistically)
-                        if (!initial || !m.is_visitor) appendMessage(m);
+                        var msgId = m.id || m.created_at;
+                        if (!renderedIds.has(msgId)) {
+                            renderedIds.add(msgId);
+                            appendMessage(m);
+                        }
                         if (!lastMsgTime || m.created_at > lastMsgTime) lastMsgTime = m.created_at;
                     });
                 }).catch(function () { });
@@ -600,8 +614,10 @@
                 input.style.height = 'auto';
                 sendBtn.disabled = true;
 
-                // Optimistic
-                appendMessage({ content: text, is_visitor: true, created_at: new Date().toISOString() });
+                // Optimistic render with temp ID
+                var tempId = 'temp_' + Date.now();
+                renderedIds.add(tempId);
+                appendMessage({ id: tempId, content: text, is_visitor: true, created_at: new Date().toISOString() });
 
                 fetch(API, {
                     method: 'POST',
