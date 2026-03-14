@@ -174,7 +174,7 @@ export default function Inboxes() {
     try {
       await loadFbSdk(META_APP_ID)
       window.FB.login(
-        async (response: any) => {
+        (response: any) => {
           if (!response.authResponse?.code) {
             // User cancelled
             setConnecting(false)
@@ -182,32 +182,32 @@ export default function Inboxes() {
           }
           const code = response.authResponse.code
           // Exchange code for WABA + phone numbers via edge function
-          try {
-            const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'exchange_token_embedded_signup', code })
+          fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'exchange_token_embedded_signup', code })
+          })
+            .then(res => res.json())
+            .then((data) => {
+              if (data.error) throw new Error(data.error)
+              const numbers: WhatsAppNumber[] = data.phone_numbers || []
+              if (numbers.length === 0) {
+                toast.error('No WhatsApp numbers found. Make sure you completed the setup and added a phone number.')
+                return
+              }
+              setWaNumbers(numbers)
+              if (numbers.length === 1) {
+                setSelectedNumber(numbers[0])
+                setInboxName(numbers[0].verified_name || numbers[0].display_phone_number)
+              }
+              setOauthStep('select')
             })
-            const data = await res.json()
-            if (data.error) throw new Error(data.error)
-            const numbers: WhatsAppNumber[] = data.phone_numbers || []
-            if (numbers.length === 0) {
-              toast.error('No WhatsApp numbers found. Make sure you completed the setup and added a phone number.')
+            .catch((err: any) => {
+              toast.error(err.message || 'Failed to fetch WhatsApp numbers')
+            })
+            .finally(() => {
               setConnecting(false)
-              return
-            }
-            setWaNumbers(numbers)
-            // Auto-select if only one number
-            if (numbers.length === 1) {
-              setSelectedNumber(numbers[0])
-              setInboxName(numbers[0].verified_name || numbers[0].display_phone_number)
-            }
-            setOauthStep('select')
-          } catch (err: any) {
-            toast.error(err.message || 'Failed to fetch WhatsApp numbers')
-          } finally {
-            setConnecting(false)
-          }
+            })
         },
         {
           config_id: WA_CONFIG_ID,
