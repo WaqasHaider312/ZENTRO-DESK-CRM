@@ -44,6 +44,73 @@ Deno.serve(async (req) => {
             }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
 
+        // ── Exchange token (WhatsApp Embedded Signup) ────────────────────
+        if (action === 'exchange_token_embedded_signup') {
+            const { code } = body
+
+            // Embedded Signup code exchange — no redirect_uri needed
+            const tokenRes = await fetch(
+                `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${APP_ID}&client_secret=${APP_SECRET}&code=${code}`
+            )
+            const tokenData = await tokenRes.json()
+            console.log('Embedded Signup token result:', JSON.stringify(tokenData))
+            if (tokenData.error) return new Response(JSON.stringify({ error: tokenData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+
+            const userToken = tokenData.access_token
+            const phoneNumbers: any[] = []
+            const seenWabaIds = new Set<string>()
+
+            const fetchPhoneNumbers = async (wabaId: string, token: string) => {
+                if (seenWabaIds.has(wabaId)) return
+                seenWabaIds.add(wabaId)
+                const res = await fetch(`https://graph.facebook.com/v19.0/${wabaId}/phone_numbers?fields=display_phone_number,verified_name,status,quality_rating&access_token=${token}`)
+                const data = await res.json()
+                console.log(`WABA ${wabaId} phone_numbers:`, JSON.stringify(data))
+                for (const num of (data.data || [])) {
+                    phoneNumbers.push({
+                        id: num.id,
+                        display_phone_number: num.display_phone_number,
+                        verified_name: num.verified_name,
+                        status: num.status || 'CONNECTED',
+                        waba_id: wabaId,
+                        access_token: userToken,
+                    })
+                }
+            }
+
+            // Get all WABAs the user has access to via their businesses
+            const bizRes = await fetch(`https://graph.facebook.com/v19.0/me/businesses?fields=id,name&access_token=${userToken}`)
+            const bizData = await bizRes.json()
+            console.log('Embedded Signup businesses:', JSON.stringify(bizData))
+
+            for (const biz of (bizData.data || [])) {
+                const wabaRes = await fetch(`https://graph.facebook.com/v19.0/${biz.id}/owned_whatsapp_business_accounts?fields=id,name&access_token=${userToken}`)
+                const wabaData = await wabaRes.json()
+                console.log(`Biz ${biz.id} owned WABAs:`, JSON.stringify(wabaData))
+                for (const waba of (wabaData.data || [])) await fetchPhoneNumbers(waba.id, userToken)
+
+                // Also check client WABAs
+                const clientWabaRes = await fetch(`https://graph.facebook.com/v19.0/${biz.id}/client_whatsapp_business_accounts?fields=id,name&access_token=${userToken}`)
+                const clientWabaData = await clientWabaRes.json()
+                for (const waba of (clientWabaData.data || [])) await fetchPhoneNumbers(waba.id, userToken)
+            }
+
+            // Fallback: try direct user WABAs
+            if (phoneNumbers.length === 0) {
+                const directRes = await fetch(`https://graph.facebook.com/v19.0/me/whatsapp_business_accounts?fields=id,name&access_token=${userToken}`)
+                const directData = await directRes.json()
+                console.log('Direct user WABAs:', JSON.stringify(directData))
+                for (const waba of (directData.data || [])) await fetchPhoneNumbers(waba.id, userToken)
+            }
+
+            console.log(`Embedded Signup found ${phoneNumbers.length} numbers`)
+
+            return new Response(JSON.stringify({
+                phone_numbers: phoneNumbers,
+                access_token: userToken,
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+
         // ── Exchange token (WhatsApp) ──────────────────────────────────
         if (action === 'exchange_token_whatsapp') {
             const { code, redirect_uri } = body
@@ -70,10 +137,11 @@ Deno.serve(async (req) => {
 
             const seenWabaIds = new Set<string>()
 
-            const fetchNumbersFromWaba = async (wabaId: string) => {
+            const fetchNumbersFromWaba = async (wabaId: string, tokenOverride?: string) => {
                 if (seenWabaIds.has(wabaId)) return
                 seenWabaIds.add(wabaId)
-                const numRes = await fetch(`https://graph.facebook.com/v19.0/${wabaId}/phone_numbers?fields=display_phone_number,verified_name,status,quality_rating&access_token=${userToken}`)
+                const token = tokenOverride || userToken
+                const numRes = await fetch(`https://graph.facebook.com/v19.0/${wabaId}/phone_numbers?fields=display_phone_number,verified_name,status,quality_rating&access_token=${token}`)
                 const numData = await numRes.json()
                 console.log(`WABA ${wabaId} phone_numbers:`, JSON.stringify(numData))
                 for (const num of (numData.data || [])) {
@@ -83,7 +151,7 @@ Deno.serve(async (req) => {
                         verified_name: num.verified_name,
                         status: num.status || 'CONNECTED',
                         waba_id: wabaId,
-                        access_token: userToken,
+                        access_token: token,
                     })
                 }
             }
@@ -111,6 +179,18 @@ Deno.serve(async (req) => {
                     const userWabaData = await userWabaRes.json()
                     console.log('User WABAs:', JSON.stringify(userWabaData))
                     for (const waba of (userWabaData.data || [])) await fetchNumbersFromWaba(waba.id)
+                }
+            }
+
+            // Strategy 3: Use System User token + known WABA ID from env vars
+            // This is the reliable fallback when user token lacks business_management
+            if (phoneNumbers.length === 0) {
+                const systemToken = Deno.env.get('META_SYSTEM_USER_TOKEN')
+                const knownWabaId = Deno.env.get('META_WABA_ID')
+                console.log('Strategy 3 — system token available:', !!systemToken, 'WABA ID:', knownWabaId)
+
+                if (systemToken && knownWabaId) {
+                    await fetchNumbersFromWaba(knownWabaId, systemToken)
                 }
             }
 

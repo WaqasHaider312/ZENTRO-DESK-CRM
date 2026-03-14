@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { Inbox as InboxType } from '@/types'
@@ -14,7 +14,16 @@ import {
 import { cn } from '@/lib/utils'
 
 const META_APP_ID = '1563702864736349'
+const WA_CONFIG_ID = '928857589841202'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+
+// Extend window type for FB SDK
+declare global {
+  interface Window {
+    FB: any
+    fbAsyncInit: any
+  }
+}
 
 const CHANNEL_CONFIG = [
   { type: 'facebook', label: 'Facebook Messenger', icon: Facebook, color: 'bg-blue-500', description: 'Receive messages from your Facebook Page', available: true },
@@ -32,6 +41,23 @@ interface WhatsAppNumber {
 
 type ModalType = 'facebook' | 'instagram' | 'whatsapp' | 'widget' | null
 
+// Load Facebook JS SDK
+function loadFbSdk(appId: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (window.FB) { resolve(); return }
+    window.fbAsyncInit = function () {
+      window.FB.init({ appId, autoLogAppEvents: true, xfbml: true, version: 'v19.0' })
+      resolve()
+    }
+    if (!document.getElementById('facebook-jssdk')) {
+      const script = document.createElement('script')
+      script.id = 'facebook-jssdk'
+      script.src = 'https://connect.facebook.net/en_US/sdk.js'
+      document.head.appendChild(script)
+    }
+  })
+}
+
 export default function Inboxes() {
   const { organization } = useAuth()
   const [inboxes, setInboxes] = useState<InboxType[]>([])
@@ -44,13 +70,10 @@ export default function Inboxes() {
   const [selectedNumber, setSelectedNumber] = useState<WhatsAppNumber | null>(null)
   const [inboxName, setInboxName] = useState('')
   const [oauthStep, setOauthStep] = useState<'connect' | 'select' | 'done'>('connect')
-  const [showManual, setShowManual] = useState(false)
-  const [manualPhoneNumberId, setManualPhoneNumberId] = useState('')
-  const [manualWabaId, setManualWabaId] = useState('')
-  const [manualPhone, setManualPhone] = useState('')
 
   useEffect(() => {
     fetchInboxes()
+    // Handle Facebook/Instagram OAuth callback (not WhatsApp — WA uses Embedded Signup)
     const code = sessionStorage.getItem('oauth_code')
     const state = sessionStorage.getItem('oauth_state')
     if (code && state) {
@@ -77,7 +100,6 @@ export default function Inboxes() {
     setPages([]); setSelectedPage(null)
     setWaNumbers([]); setSelectedNumber(null)
     setInboxName('')
-    setShowManual(false); setManualPhoneNumberId(''); setManualWabaId(''); setManualPhone('')
   }
 
   const createWidgetInbox = async () => {
@@ -104,13 +126,13 @@ export default function Inboxes() {
     toast.success('Embed code copied!')
   }
 
-  const launchOAuthPopup = (type: 'facebook' | 'instagram' | 'whatsapp') => {
+  // ── Facebook / Instagram OAuth (unchanged) ────────────────────────────────
+  const launchOAuthPopup = (type: 'facebook' | 'instagram') => {
     const redirectUri = `${window.location.origin}/oauth/callback`
     const state = `${type}:${organization!.id}`
     let scope = ''
     if (type === 'facebook') scope = 'pages_messaging,pages_show_list,pages_manage_metadata'
-    else if (type === 'instagram') scope = 'pages_messaging,pages_show_list,pages_manage_metadata,instagram_basic,instagram_manage_messages'
-    else if (type === 'whatsapp') scope = 'whatsapp_business_management,whatsapp_business_messaging,pages_show_list,business_management'
+    else scope = 'pages_messaging,pages_show_list,pages_manage_metadata,instagram_basic,instagram_manage_messages'
     window.location.href = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&scope=${encodeURIComponent(scope)}&response_type=code`
   }
 
@@ -120,36 +142,75 @@ export default function Inboxes() {
     setModal(type as ModalType); setConnecting(true)
     try {
       const redirectUri = `${window.location.origin}/oauth/callback`
-      const action = type === 'whatsapp' ? 'exchange_token_whatsapp' : 'exchange_token'
       const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, code, redirect_uri: redirectUri })
+        body: JSON.stringify({ action: 'exchange_token', code, redirect_uri: redirectUri })
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      if (type === 'whatsapp') setWaNumbers(data.phone_numbers || [])
-      else setPages(data.pages || [])
+      setPages(data.pages || [])
       setOauthStep('select')
     } catch (err: any) { toast.error(err.message || 'OAuth failed'); setModal(null) }
     finally { setConnecting(false) }
   }
 
-  const connectPage = async () => {
-    if (!selectedPage || !organization) return
+  // ── WhatsApp Embedded Signup ──────────────────────────────────────────────
+  const launchWhatsAppEmbeddedSignup = useCallback(async () => {
     setConnecting(true)
     try {
-      const action = modal === 'facebook' ? 'connect_facebook_page' : 'connect_instagram'
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, page_id: selectedPage.id, page_name: selectedPage.name, page_access_token: selectedPage.access_token, organization_id: organization.id, inbox_name: inboxName || selectedPage.name })
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setOauthStep('done'); toast.success('Connected successfully!'); fetchInboxes()
-      setTimeout(() => setModal(null), 2000)
-    } catch (err: any) { toast.error(err.message || 'Failed to connect') }
-    finally { setConnecting(false) }
-  }
+      await loadFbSdk(META_APP_ID)
+      window.FB.login(
+        async (response: any) => {
+          if (!response.authResponse?.code) {
+            // User cancelled
+            setConnecting(false)
+            return
+          }
+          const code = response.authResponse.code
+          // Exchange code for WABA + phone numbers via edge function
+          try {
+            const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'exchange_token_embedded_signup', code })
+            })
+            const data = await res.json()
+            if (data.error) throw new Error(data.error)
+            const numbers: WhatsAppNumber[] = data.phone_numbers || []
+            if (numbers.length === 0) {
+              toast.error('No WhatsApp numbers found. Make sure you completed the setup and added a phone number.')
+              setConnecting(false)
+              return
+            }
+            setWaNumbers(numbers)
+            // Auto-select if only one number
+            if (numbers.length === 1) {
+              setSelectedNumber(numbers[0])
+              setInboxName(numbers[0].verified_name || numbers[0].display_phone_number)
+            }
+            setOauthStep('select')
+          } catch (err: any) {
+            toast.error(err.message || 'Failed to fetch WhatsApp numbers')
+          } finally {
+            setConnecting(false)
+          }
+        },
+        {
+          config_id: WA_CONFIG_ID,
+          response_type: 'code',
+          override_default_response_type: true,
+          extras: {
+            setup: {},
+            featureType: '',
+            sessionInfoVersion: '3',
+          },
+        }
+      )
+    } catch (err: any) {
+      toast.error('Failed to load Meta SDK. Please try again.')
+      setConnecting(false)
+    }
+  }, [organization])
 
   const connectWhatsApp = async () => {
     if (!selectedNumber || !organization) return
@@ -176,25 +237,18 @@ export default function Inboxes() {
     finally { setConnecting(false) }
   }
 
-  const connectWhatsAppManual = async () => {
-    if (!manualPhoneNumberId || !manualWabaId || !organization) return
+  const connectPage = async () => {
+    if (!selectedPage || !organization) return
     setConnecting(true)
     try {
+      const action = modal === 'facebook' ? 'connect_facebook_page' : 'connect_instagram'
       const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'connect_whatsapp',
-          phone_number_id: manualPhoneNumberId,
-          phone_number: manualPhone,
-          verified_name: inboxName,
-          waba_id: manualWabaId,
-          organization_id: organization.id,
-          inbox_name: inboxName || manualPhone || manualPhoneNumberId,
-        })
+        body: JSON.stringify({ action, page_id: selectedPage.id, page_name: selectedPage.name, page_access_token: selectedPage.access_token, organization_id: organization.id, inbox_name: inboxName || selectedPage.name })
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      setOauthStep('done'); toast.success('WhatsApp connected!'); fetchInboxes()
+      setOauthStep('done'); toast.success('Connected successfully!'); fetchInboxes()
       setTimeout(() => setModal(null), 2000)
     } catch (err: any) { toast.error(err.message || 'Failed to connect') }
     finally { setConnecting(false) }
@@ -390,7 +444,7 @@ export default function Inboxes() {
         </div>
       )}
 
-      {/* WhatsApp Modal */}
+      {/* WhatsApp Modal — Embedded Signup */}
       {modal === 'whatsapp' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-background rounded-xl border border-border w-full max-w-md shadow-xl">
@@ -405,103 +459,65 @@ export default function Inboxes() {
                     <Phone className="w-8 h-8 text-white" />
                   </div>
                   <p className="font-medium mb-2">Connect WhatsApp Business</p>
-                  <p className="text-sm text-muted-foreground mb-3">Sign in with Facebook to select your WhatsApp Business number.</p>
-                  <div className="text-left bg-amber-50 border border-amber-200 rounded-lg p-3 mb-5">
-                    <p className="text-xs font-semibold text-amber-800 mb-1">Requirements</p>
-                    <p className="text-xs text-amber-700">• A WhatsApp Business Account (WABA)</p>
-                    <p className="text-xs text-amber-700">• A verified phone number added to your WABA</p>
-                    <p className="text-xs text-amber-700">• Admin access on your Meta Business portfolio</p>
+                  <p className="text-sm text-muted-foreground mb-5">
+                    Click below to connect your WhatsApp Business number. You'll go through Meta's official setup — no technical knowledge required.
+                  </p>
+                  <div className="text-left bg-green-50 border border-green-200 rounded-lg p-3 mb-5 space-y-1">
+                    <p className="text-xs font-semibold text-green-800">What you'll need:</p>
+                    <p className="text-xs text-green-700">• A Facebook account with access to your business</p>
+                    <p className="text-xs text-green-700">• A phone number for WhatsApp Business</p>
+                    <p className="text-xs text-green-700">• A WhatsApp Business Account (or create one during setup)</p>
                   </div>
-                  <Button className="w-full gap-2 bg-green-600 hover:bg-green-700" onClick={() => launchOAuthPopup('whatsapp')} disabled={connecting}>
-                    {connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
-                    Continue with Facebook
+                  <Button
+                    className="w-full gap-2 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
+                    onClick={launchWhatsAppEmbeddedSignup}
+                    disabled={connecting}
+                  >
+                    {connecting
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Setting up...</>
+                      : <><svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" /><path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.553 4.121 1.524 5.855L0 24l6.336-1.501A11.955 11.955 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.003-1.371l-.36-.214-3.727.882.925-3.63-.234-.373A9.818 9.818 0 1112 21.818z" /></svg> Connect with WhatsApp</>
+                    }
                   </Button>
                 </div>
               )}
+
               {oauthStep === 'select' && (
                 <div>
-                  {!showManual ? (
-                    <>
-                      <p className="text-sm text-muted-foreground mb-3">Select a WhatsApp Business number to connect:</p>
-                      <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
-                        {waNumbers.length === 0 ? (
-                          <div className="text-center py-5 bg-amber-50 border border-amber-200 rounded-lg">
-                            <p className="text-sm font-medium text-amber-800 mb-1">No numbers found via API</p>
-                            <p className="text-xs text-amber-700">This can happen when the app is pending Meta review.</p>
-                            <button onClick={() => setShowManual(true)} className="mt-2 text-xs text-green-700 font-semibold underline">
-                              Enter details manually →
-                            </button>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    {waNumbers.length === 1 ? 'Found your WhatsApp number:' : 'Select a WhatsApp number to connect:'}
+                  </p>
+                  <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+                    {waNumbers.map(num => (
+                      <button key={num.id}
+                        onClick={() => { setSelectedNumber(num); setInboxName(num.verified_name || num.display_phone_number) }}
+                        className={cn('w-full text-left p-3 rounded-lg border transition-colors', selectedNumber?.id === num.id ? 'border-green-500 bg-green-50' : 'border-border hover:border-green-300')}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-sm">{num.verified_name || 'WhatsApp Business'}</p>
+                            <p className="text-xs text-muted-foreground">{num.display_phone_number}</p>
                           </div>
-                        ) : (
-                          waNumbers.map(num => (
-                            <button key={num.id} onClick={() => { setSelectedNumber(num); setInboxName(num.verified_name || num.display_phone_number) }}
-                              className={cn('w-full text-left p-3 rounded-lg border transition-colors', selectedNumber?.id === num.id ? 'border-green-500 bg-green-50' : 'border-border hover:border-green-300')}>
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <p className="font-medium text-sm">{num.verified_name || 'Business'}</p>
-                                  <p className="text-xs text-muted-foreground">{num.display_phone_number}</p>
-                                </div>
-                                <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', num.status === 'VERIFIED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
-                                  {num.status}
-                                </span>
-                              </div>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                      {selectedNumber && (
-                        <div className="mb-4">
-                          <Label className="text-xs">Inbox Name</Label>
-                          <Input value={inboxName} onChange={e => setInboxName(e.target.value)} placeholder={selectedNumber.verified_name} className="mt-1 h-8 text-sm" />
+                          <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full',
+                            num.status === 'VERIFIED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
+                            {num.status}
+                          </span>
                         </div>
-                      )}
-                      {waNumbers.length > 0 && (
-                        <Button className="w-full bg-green-600 hover:bg-green-700" onClick={connectWhatsApp} disabled={!selectedNumber || connecting}>
-                          {connecting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                          Connect {selectedNumber?.display_phone_number || 'Number'}
-                        </Button>
-                      )}
-                      {waNumbers.length > 0 && (
-                        <button onClick={() => setShowManual(true)} className="w-full text-xs text-center text-muted-foreground mt-2 hover:text-foreground">
-                          Enter details manually instead
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 mb-4">
-                        <button onClick={() => setShowManual(false)} className="text-xs text-muted-foreground hover:text-foreground">← Back</button>
-                        <p className="text-sm font-medium">Manual Entry</p>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Find these in <strong>Meta Business Manager → WhatsApp → API Setup</strong>
-                      </p>
-                      <div className="space-y-3">
-                        <div>
-                          <Label className="text-xs">Phone Number ID <span className="text-red-500">*</span></Label>
-                          <Input value={manualPhoneNumberId} onChange={e => setManualPhoneNumberId(e.target.value)} placeholder="e.g. 123456789012345" className="mt-1 h-8 text-sm font-mono" />
-                        </div>
-                        <div>
-                          <Label className="text-xs">WhatsApp Business Account ID (WABA) <span className="text-red-500">*</span></Label>
-                          <Input value={manualWabaId} onChange={e => setManualWabaId(e.target.value)} placeholder="e.g. 987654321098765" className="mt-1 h-8 text-sm font-mono" />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Phone Number (display)</Label>
-                          <Input value={manualPhone} onChange={e => setManualPhone(e.target.value)} placeholder="e.g. +92 307 8958033" className="mt-1 h-8 text-sm" />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Inbox Name</Label>
-                          <Input value={inboxName} onChange={e => setInboxName(e.target.value)} placeholder="e.g. Vouche.UK WhatsApp" className="mt-1 h-8 text-sm" />
-                        </div>
-                      </div>
-                      <Button className="w-full bg-green-600 hover:bg-green-700 mt-4" onClick={connectWhatsAppManual} disabled={!manualPhoneNumberId || !manualWabaId || connecting}>
-                        {connecting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                        Connect WhatsApp
-                      </Button>
-                    </>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedNumber && (
+                    <div className="mb-4">
+                      <Label className="text-xs">Inbox Name</Label>
+                      <Input value={inboxName} onChange={e => setInboxName(e.target.value)} placeholder={selectedNumber.verified_name} className="mt-1 h-8 text-sm" />
+                    </div>
                   )}
+                  <Button className="w-full bg-green-600 hover:bg-green-700" onClick={connectWhatsApp} disabled={!selectedNumber || connecting}>
+                    {connecting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                    Connect {selectedNumber?.display_phone_number || 'Number'}
+                  </Button>
                 </div>
               )}
+
               {oauthStep === 'done' && (
                 <div className="text-center py-6">
                   <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
