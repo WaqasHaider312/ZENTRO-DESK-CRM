@@ -43,9 +43,15 @@ type ModalType = 'facebook' | 'instagram' | 'whatsapp' | 'widget' | null
 
 // Load Facebook JS SDK
 function loadFbSdk(appId: string): Promise<void> {
-  return new Promise((resolve) => {
-    if (window.FB) { resolve(); return }
+  return new Promise((resolve, reject) => {
+    if (window.FB) {
+      window.FB.init({ appId, autoLogAppEvents: true, xfbml: true, version: 'v19.0' })
+      resolve()
+      return
+    }
+    const timeout = setTimeout(() => reject(new Error('Facebook SDK load timeout')), 10000)
     window.fbAsyncInit = function () {
+      clearTimeout(timeout)
       window.FB.init({ appId, autoLogAppEvents: true, xfbml: true, version: 'v19.0' })
       resolve()
     }
@@ -53,6 +59,9 @@ function loadFbSdk(appId: string): Promise<void> {
       const script = document.createElement('script')
       script.id = 'facebook-jssdk'
       script.src = 'https://connect.facebook.net/en_US/sdk.js'
+      script.async = true
+      script.defer = true
+      script.onerror = () => { clearTimeout(timeout); reject(new Error('Failed to load Facebook SDK')) }
       document.head.appendChild(script)
     }
   })
@@ -70,6 +79,11 @@ export default function Inboxes() {
   const [selectedNumber, setSelectedNumber] = useState<WhatsAppNumber | null>(null)
   const [inboxName, setInboxName] = useState('')
   const [oauthStep, setOauthStep] = useState<'connect' | 'select' | 'done'>('connect')
+
+  // Load FB SDK on mount so it's ready when user clicks Connect
+  useEffect(() => {
+    loadFbSdk(META_APP_ID).catch(() => console.warn('FB SDK failed to preload'))
+  }, [])
 
   useEffect(() => {
     fetchInboxes()
@@ -207,7 +221,8 @@ export default function Inboxes() {
         }
       )
     } catch (err: any) {
-      toast.error('Failed to load Meta SDK. Please try again.')
+      console.error('Embedded Signup error:', err)
+      toast.error(err.message || 'Failed to load Meta SDK. Check your internet connection and try again.')
       setConnecting(false)
     }
   }, [organization])
