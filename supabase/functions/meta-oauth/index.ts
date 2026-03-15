@@ -46,9 +46,11 @@ Deno.serve(async (req) => {
 
         // ── Exchange token (WhatsApp Embedded Signup) ────────────────────
         if (action === 'exchange_token_embedded_signup') {
-            const { code } = body
+            const { code, waba_id, phone_number_id } = body
 
-            // Embedded Signup code exchange — no redirect_uri needed
+            console.log('Embedded Signup — waba_id:', waba_id, 'phone_number_id:', phone_number_id)
+
+            // Exchange code for user access token
             const tokenRes = await fetch(
                 `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${APP_ID}&client_secret=${APP_SECRET}&code=${code}`
             )
@@ -57,58 +59,50 @@ Deno.serve(async (req) => {
             if (tokenData.error) return new Response(JSON.stringify({ error: tokenData.error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
             const userToken = tokenData.access_token
-            const phoneNumbers: any[] = []
-            const seenWabaIds = new Set<string>()
 
-            const fetchPhoneNumbers = async (wabaId: string, token: string) => {
-                if (seenWabaIds.has(wabaId)) return
-                seenWabaIds.add(wabaId)
-                const res = await fetch(`https://graph.facebook.com/v19.0/${wabaId}/phone_numbers?fields=display_phone_number,verified_name,status,quality_rating&access_token=${token}`)
-                const data = await res.json()
-                console.log(`WABA ${wabaId} phone_numbers:`, JSON.stringify(data))
-                for (const num of (data.data || [])) {
-                    phoneNumbers.push({
-                        id: num.id,
-                        display_phone_number: num.display_phone_number,
-                        verified_name: num.verified_name,
-                        status: num.status || 'CONNECTED',
-                        waba_id: wabaId,
-                        access_token: userToken,
-                    })
-                }
+            // Meta gave us waba_id and phone_number_id directly — just fetch that phone number's details
+            const numRes = await fetch(
+                `https://graph.facebook.com/v19.0/${phone_number_id}?fields=display_phone_number,verified_name,status,quality_rating&access_token=${userToken}`
+            )
+            const numData = await numRes.json()
+            console.log('Phone number details:', JSON.stringify(numData))
+
+            if (numData.error) {
+                // Fallback: fetch all numbers from the WABA
+                console.log('Falling back to WABA phone_numbers endpoint')
+                const wabaNumRes = await fetch(
+                    `https://graph.facebook.com/v19.0/${waba_id}/phone_numbers?fields=display_phone_number,verified_name,status,quality_rating&access_token=${userToken}`
+                )
+                const wabaNumData = await wabaNumRes.json()
+                console.log('WABA phone numbers:', JSON.stringify(wabaNumData))
+
+                const phoneNumbers = (wabaNumData.data || []).map((num: any) => ({
+                    id: num.id,
+                    display_phone_number: num.display_phone_number,
+                    verified_name: num.verified_name,
+                    status: num.status || 'CONNECTED',
+                    waba_id,
+                    access_token: userToken,
+                }))
+
+                return new Response(JSON.stringify({ phone_numbers: phoneNumbers, access_token: userToken }),
+                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             }
 
-            // Get all WABAs the user has access to via their businesses
-            const bizRes = await fetch(`https://graph.facebook.com/v19.0/me/businesses?fields=id,name&access_token=${userToken}`)
-            const bizData = await bizRes.json()
-            console.log('Embedded Signup businesses:', JSON.stringify(bizData))
-
-            for (const biz of (bizData.data || [])) {
-                const wabaRes = await fetch(`https://graph.facebook.com/v19.0/${biz.id}/owned_whatsapp_business_accounts?fields=id,name&access_token=${userToken}`)
-                const wabaData = await wabaRes.json()
-                console.log(`Biz ${biz.id} owned WABAs:`, JSON.stringify(wabaData))
-                for (const waba of (wabaData.data || [])) await fetchPhoneNumbers(waba.id, userToken)
-
-                // Also check client WABAs
-                const clientWabaRes = await fetch(`https://graph.facebook.com/v19.0/${biz.id}/client_whatsapp_business_accounts?fields=id,name&access_token=${userToken}`)
-                const clientWabaData = await clientWabaRes.json()
-                for (const waba of (clientWabaData.data || [])) await fetchPhoneNumbers(waba.id, userToken)
-            }
-
-            // Fallback: try direct user WABAs
-            if (phoneNumbers.length === 0) {
-                const directRes = await fetch(`https://graph.facebook.com/v19.0/me/whatsapp_business_accounts?fields=id,name&access_token=${userToken}`)
-                const directData = await directRes.json()
-                console.log('Direct user WABAs:', JSON.stringify(directData))
-                for (const waba of (directData.data || [])) await fetchPhoneNumbers(waba.id, userToken)
-            }
-
-            console.log(`Embedded Signup found ${phoneNumbers.length} numbers`)
-
-            return new Response(JSON.stringify({
-                phone_numbers: phoneNumbers,
+            // Return the specific phone number Meta told us about
+            const phoneNumbers = [{
+                id: phone_number_id,
+                display_phone_number: numData.display_phone_number,
+                verified_name: numData.verified_name,
+                status: numData.status || 'CONNECTED',
+                waba_id,
                 access_token: userToken,
-            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            }]
+
+            console.log('Embedded Signup returning phone number:', numData.display_phone_number)
+
+            return new Response(JSON.stringify({ phone_numbers: phoneNumbers, access_token: userToken }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
 
         // ── Exchange token (WhatsApp) ──────────────────────────────────
