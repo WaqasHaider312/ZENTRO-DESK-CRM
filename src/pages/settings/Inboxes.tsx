@@ -140,7 +140,7 @@ export default function Inboxes() {
     toast.success('Embed code copied!')
   }
 
-  // ── Facebook / Instagram OAuth (unchanged) ────────────────────────────────
+  // ── Facebook / Instagram OAuth ────────────────────────────────────────────
   const launchOAuthPopup = (type: 'facebook' | 'instagram') => {
     const redirectUri = `${window.location.origin}/oauth/callback`
     const state = `${type}:${organization!.id}`
@@ -175,17 +175,33 @@ export default function Inboxes() {
       await loadFbSdk(META_APP_ID)
       window.FB.login(
         (response: any) => {
+          console.log('FB.login full response:', JSON.stringify(response))
+
           if (!response.authResponse?.code) {
-            // User cancelled
+            // User cancelled or failed
             setConnecting(false)
             return
           }
+
           const code = response.authResponse.code
-          // Exchange code for WABA + phone numbers via edge function
+
+          // Extract waba_id and phone_number_id that Meta passes back via extras
+          const extras = response.authResponse.extras ?? {}
+          const setup = extras.setup ?? {}
+          const waba_id = setup.waba_id ?? setup.wabaId ?? extras.waba_id ?? null
+          const phone_number_id = setup.phone_number_id ?? setup.phoneNumberId ?? extras.phone_number_id ?? null
+
+          console.log('Embedded Signup extracted:', { waba_id, phone_number_id, extras })
+
           fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'exchange_token_embedded_signup', code })
+            body: JSON.stringify({
+              action: 'exchange_token_embedded_signup',
+              code,
+              waba_id,
+              phone_number_id,
+            })
           })
             .then(res => res.json())
             .then((data) => {
