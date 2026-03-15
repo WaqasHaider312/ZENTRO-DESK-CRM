@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 
 const META_APP_ID = '1563702864736349'
-const WA_CONFIG_ID = '928857589841202'
+const WA_CONFIG_ID = '1333262428825759'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
 // Extend window type for FB SDK
