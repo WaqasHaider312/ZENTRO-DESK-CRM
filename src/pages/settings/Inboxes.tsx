@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import {
-  Facebook, Instagram, Globe, MessageSquare, Phone,
+  Facebook, Instagram, Globe, Phone,
   Trash2, Loader2, CheckCircle, X, ExternalLink, Inbox, Copy
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 const META_APP_ID = '1563702864736349'
 const WA_CONFIG_ID = '1333262428825759'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 // Extend window type for FB SDK
 declare global {
@@ -40,6 +41,22 @@ interface WhatsAppNumber {
 }
 
 type ModalType = 'facebook' | 'instagram' | 'whatsapp' | 'widget' | null
+
+// ── Fetch helper — always includes required Supabase auth headers ─────────────
+async function callMetaOAuth(payload: Record<string, any>) {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json()
+  if (data.error) throw new Error(data.error)
+  return data
+}
 
 // Load Facebook JS SDK
 function loadFbSdk(appId: string): Promise<void> {
@@ -80,14 +97,12 @@ export default function Inboxes() {
   const [inboxName, setInboxName] = useState('')
   const [oauthStep, setOauthStep] = useState<'connect' | 'select' | 'done'>('connect')
 
-  // Load FB SDK on mount so it's ready when user clicks Connect
   useEffect(() => {
     loadFbSdk(META_APP_ID).catch(() => console.warn('FB SDK failed to preload'))
   }, [])
 
   useEffect(() => {
     fetchInboxes()
-    // Handle Facebook/Instagram OAuth callback (not WhatsApp — WA uses Embedded Signup)
     const code = sessionStorage.getItem('oauth_code')
     const state = sessionStorage.getItem('oauth_state')
     if (code && state) {
@@ -156,12 +171,7 @@ export default function Inboxes() {
     setModal(type as ModalType); setConnecting(true)
     try {
       const redirectUri = `${window.location.origin}/oauth/callback`
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'exchange_token', code, redirect_uri: redirectUri })
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
+      const data = await callMetaOAuth({ action: 'exchange_token', code, redirect_uri: redirectUri })
       setPages(data.pages || [])
       setOauthStep('select')
     } catch (err: any) { toast.error(err.message || 'OAuth failed'); setModal(null) }
@@ -178,14 +188,13 @@ export default function Inboxes() {
           console.log('FB.login full response:', JSON.stringify(response))
 
           if (!response.authResponse?.code) {
-            // User cancelled or failed
             setConnecting(false)
             return
           }
 
           const code = response.authResponse.code
 
-          // Extract waba_id and phone_number_id that Meta passes back via extras
+          // Meta sometimes returns waba_id in extras.setup, sometimes not (existing WABAs)
           const extras = response.authResponse.extras ?? {}
           const setup = extras.setup ?? {}
           const waba_id = setup.waba_id ?? setup.wabaId ?? extras.waba_id ?? null
@@ -193,19 +202,8 @@ export default function Inboxes() {
 
           console.log('Embedded Signup extracted:', { waba_id, phone_number_id, extras })
 
-          fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'exchange_token_embedded_signup',
-              code,
-              waba_id,
-              phone_number_id,
-            })
-          })
-            .then(res => res.json())
+          callMetaOAuth({ action: 'exchange_token_embedded_signup', code, waba_id, phone_number_id })
             .then((data) => {
-              if (data.error) throw new Error(data.error)
               const numbers: WhatsAppNumber[] = data.phone_numbers || []
               if (numbers.length === 0) {
                 toast.error('No WhatsApp numbers found. Make sure you completed the setup and added a phone number.')
@@ -218,12 +216,8 @@ export default function Inboxes() {
               }
               setOauthStep('select')
             })
-            .catch((err: any) => {
-              toast.error(err.message || 'Failed to fetch WhatsApp numbers')
-            })
-            .finally(() => {
-              setConnecting(false)
-            })
+            .catch((err: any) => toast.error(err.message || 'Failed to fetch WhatsApp numbers'))
+            .finally(() => setConnecting(false))
         },
         {
           config_id: WA_CONFIG_ID,
@@ -247,22 +241,19 @@ export default function Inboxes() {
     if (!selectedNumber || !organization) return
     setConnecting(true)
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'connect_whatsapp',
-          phone_number_id: selectedNumber.id,
-          phone_number: selectedNumber.display_phone_number,
-          verified_name: selectedNumber.verified_name,
-          waba_id: selectedNumber.waba_id,
-          access_token: selectedNumber.access_token,
-          organization_id: organization.id,
-          inbox_name: inboxName || selectedNumber.verified_name || selectedNumber.display_phone_number,
-        })
+      await callMetaOAuth({
+        action: 'connect_whatsapp',
+        phone_number_id: selectedNumber.id,
+        phone_number: selectedNumber.display_phone_number,
+        verified_name: selectedNumber.verified_name,
+        waba_id: selectedNumber.waba_id,
+        access_token: selectedNumber.access_token,
+        organization_id: organization.id,
+        inbox_name: inboxName || selectedNumber.verified_name || selectedNumber.display_phone_number,
       })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setOauthStep('done'); toast.success('WhatsApp connected!'); fetchInboxes()
+      setOauthStep('done')
+      toast.success('WhatsApp connected!')
+      fetchInboxes()
       setTimeout(() => setModal(null), 2000)
     } catch (err: any) { toast.error(err.message || 'Failed to connect WhatsApp') }
     finally { setConnecting(false) }
@@ -273,13 +264,14 @@ export default function Inboxes() {
     setConnecting(true)
     try {
       const action = modal === 'facebook' ? 'connect_facebook_page' : 'connect_instagram'
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, page_id: selectedPage.id, page_name: selectedPage.name, page_access_token: selectedPage.access_token, organization_id: organization.id, inbox_name: inboxName || selectedPage.name })
+      await callMetaOAuth({
+        action, page_id: selectedPage.id, page_name: selectedPage.name,
+        page_access_token: selectedPage.access_token, organization_id: organization.id,
+        inbox_name: inboxName || selectedPage.name
       })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setOauthStep('done'); toast.success('Connected successfully!'); fetchInboxes()
+      setOauthStep('done')
+      toast.success('Connected successfully!')
+      fetchInboxes()
       setTimeout(() => setModal(null), 2000)
     } catch (err: any) { toast.error(err.message || 'Failed to connect') }
     finally { setConnecting(false) }
