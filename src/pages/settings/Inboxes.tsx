@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import {
   Facebook, Instagram, Globe, Phone,
-  Trash2, Loader2, CheckCircle, X, ExternalLink, Inbox, Copy
+  Trash2, Loader2, CheckCircle, X, ExternalLink, Inbox, Copy, ShieldCheck
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -18,7 +18,6 @@ const WA_CONFIG_ID = '1333262428825759'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-// Extend window type for FB SDK
 declare global {
   interface Window {
     FB: any
@@ -40,9 +39,9 @@ interface WhatsAppNumber {
   id: string; display_phone_number: string; verified_name: string; status: string; waba_id: string; access_token?: string
 }
 
+type OAuthStep = 'connect' | 'select' | 'pin' | 'done'
 type ModalType = 'facebook' | 'instagram' | 'whatsapp' | 'widget' | null
 
-// ── Fetch helper — always includes required Supabase auth headers ─────────────
 async function callMetaOAuth(payload: Record<string, any>) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/meta-oauth`, {
     method: 'POST',
@@ -58,7 +57,6 @@ async function callMetaOAuth(payload: Record<string, any>) {
   return data
 }
 
-// Load Facebook JS SDK
 function loadFbSdk(appId: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (window.FB) {
@@ -95,7 +93,9 @@ export default function Inboxes() {
   const [waNumbers, setWaNumbers] = useState<WhatsAppNumber[]>([])
   const [selectedNumber, setSelectedNumber] = useState<WhatsAppNumber | null>(null)
   const [inboxName, setInboxName] = useState('')
-  const [oauthStep, setOauthStep] = useState<'connect' | 'select' | 'done'>('connect')
+  const [oauthStep, setOauthStep] = useState<OAuthStep>('connect')
+  const [waPin, setWaPin] = useState('')
+  const [pinError, setPinError] = useState('')
 
   useEffect(() => {
     loadFbSdk(META_APP_ID).catch(() => console.warn('FB SDK failed to preload'))
@@ -128,7 +128,7 @@ export default function Inboxes() {
     setModal(type); setOauthStep('connect')
     setPages([]); setSelectedPage(null)
     setWaNumbers([]); setSelectedNumber(null)
-    setInboxName('')
+    setInboxName(''); setWaPin(''); setPinError('')
   }
 
   const createWidgetInbox = async () => {
@@ -155,7 +155,6 @@ export default function Inboxes() {
     toast.success('Embed code copied!')
   }
 
-  // ── Facebook / Instagram OAuth ────────────────────────────────────────────
   const launchOAuthPopup = (type: 'facebook' | 'instagram') => {
     const redirectUri = `${window.location.origin}/oauth/callback`
     const state = `${type}:${organization!.id}`
@@ -178,7 +177,6 @@ export default function Inboxes() {
     finally { setConnecting(false) }
   }
 
-  // ── WhatsApp Embedded Signup ──────────────────────────────────────────────
   const launchWhatsAppEmbeddedSignup = useCallback(async () => {
     setConnecting(true)
     try {
@@ -186,15 +184,9 @@ export default function Inboxes() {
       window.FB.login(
         (response: any) => {
           console.log('FB.login full response:', JSON.stringify(response))
-
-          if (!response.authResponse?.code) {
-            setConnecting(false)
-            return
-          }
+          if (!response.authResponse?.code) { setConnecting(false); return }
 
           const code = response.authResponse.code
-
-          // Meta sometimes returns waba_id in extras.setup, sometimes not (existing WABAs)
           const extras = response.authResponse.extras ?? {}
           const setup = extras.setup ?? {}
           const waba_id = setup.waba_id ?? setup.wabaId ?? extras.waba_id ?? null
@@ -223,22 +215,29 @@ export default function Inboxes() {
           config_id: WA_CONFIG_ID,
           response_type: 'code',
           override_default_response_type: true,
-          extras: {
-            setup: {},
-            featureType: '',
-            sessionInfoVersion: '3',
-          },
+          extras: { setup: {}, featureType: '', sessionInfoVersion: '3' },
         }
       )
     } catch (err: any) {
-      console.error('Embedded Signup error:', err)
-      toast.error(err.message || 'Failed to load Meta SDK. Check your internet connection and try again.')
+      toast.error(err.message || 'Failed to load Meta SDK.')
       setConnecting(false)
     }
   }, [organization])
 
+  const proceedToPin = () => {
+    if (!selectedNumber) return
+    setWaPin('')
+    setPinError('')
+    setOauthStep('pin')
+  }
+
   const connectWhatsApp = async () => {
     if (!selectedNumber || !organization) return
+    if (waPin.length !== 6 || !/^\d{6}$/.test(waPin)) {
+      setPinError('PIN must be exactly 6 digits.')
+      return
+    }
+    setPinError('')
     setConnecting(true)
     try {
       await callMetaOAuth({
@@ -250,12 +249,19 @@ export default function Inboxes() {
         access_token: selectedNumber.access_token,
         organization_id: organization.id,
         inbox_name: inboxName || selectedNumber.verified_name || selectedNumber.display_phone_number,
+        pin: waPin,
       })
       setOauthStep('done')
       toast.success('WhatsApp connected!')
       fetchInboxes()
       setTimeout(() => setModal(null), 2000)
-    } catch (err: any) { toast.error(err.message || 'Failed to connect WhatsApp') }
+    } catch (err: any) {
+      if (err.message?.toLowerCase().includes('pin') || err.message?.toLowerCase().includes('two-step')) {
+        setPinError('Incorrect PIN. Please check your WhatsApp Manager and try again.')
+      } else {
+        toast.error(err.message || 'Failed to connect WhatsApp')
+      }
+    }
     finally { setConnecting(false) }
   }
 
@@ -269,9 +275,7 @@ export default function Inboxes() {
         page_access_token: selectedPage.access_token, organization_id: organization.id,
         inbox_name: inboxName || selectedPage.name
       })
-      setOauthStep('done')
-      toast.success('Connected successfully!')
-      fetchInboxes()
+      setOauthStep('done'); toast.success('Connected successfully!'); fetchInboxes()
       setTimeout(() => setModal(null), 2000)
     } catch (err: any) { toast.error(err.message || 'Failed to connect') }
     finally { setConnecting(false) }
@@ -316,9 +320,7 @@ export default function Inboxes() {
                           <p className="font-medium text-sm">{inbox.name}</p>
                           <Badge variant="secondary" className="text-xs capitalize">{inbox.channel_type}</Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {inbox.wa_phone_number || inbox.fb_page_name || 'Connected'}
-                        </p>
+                        <p className="text-xs text-muted-foreground">{inbox.wa_phone_number || inbox.fb_page_name || 'Connected'}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="flex items-center gap-1 text-xs text-green-600"><CheckCircle className="w-3.5 h-3.5" />Active</span>
@@ -467,7 +469,7 @@ export default function Inboxes() {
         </div>
       )}
 
-      {/* WhatsApp Modal — Embedded Signup */}
+      {/* WhatsApp Modal */}
       {modal === 'whatsapp' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-background rounded-xl border border-border w-full max-w-md shadow-xl">
@@ -476,6 +478,8 @@ export default function Inboxes() {
               <button onClick={() => setModal(null)} className="p-1 hover:bg-accent rounded-md"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5">
+
+              {/* Step 1 — Launch Meta popup */}
               {oauthStep === 'connect' && (
                 <div className="text-center py-4">
                   <div className="w-16 h-16 rounded-2xl bg-green-500 flex items-center justify-center mx-auto mb-4">
@@ -491,11 +495,7 @@ export default function Inboxes() {
                     <p className="text-xs text-green-700">• A phone number for WhatsApp Business</p>
                     <p className="text-xs text-green-700">• A WhatsApp Business Account (or create one during setup)</p>
                   </div>
-                  <Button
-                    className="w-full gap-2 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
-                    onClick={launchWhatsAppEmbeddedSignup}
-                    disabled={connecting}
-                  >
+                  <Button className="w-full gap-2 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold" onClick={launchWhatsAppEmbeddedSignup} disabled={connecting}>
                     {connecting
                       ? <><Loader2 className="w-4 h-4 animate-spin" /> Setting up...</>
                       : <><svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" /><path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.553 4.121 1.524 5.855L0 24l6.336-1.501A11.955 11.955 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.003-1.371l-.36-.214-3.727.882.925-3.63-.234-.373A9.818 9.818 0 1112 21.818z" /></svg> Connect with WhatsApp</>
@@ -504,6 +504,7 @@ export default function Inboxes() {
                 </div>
               )}
 
+              {/* Step 2 — Select number */}
               {oauthStep === 'select' && (
                 <div>
                   <p className="text-sm text-muted-foreground mb-3">
@@ -534,13 +535,60 @@ export default function Inboxes() {
                       <Input value={inboxName} onChange={e => setInboxName(e.target.value)} placeholder={selectedNumber.verified_name} className="mt-1 h-8 text-sm" />
                     </div>
                   )}
-                  <Button className="w-full bg-green-600 hover:bg-green-700" onClick={connectWhatsApp} disabled={!selectedNumber || connecting}>
-                    {connecting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                    Connect {selectedNumber?.display_phone_number || 'Number'}
+                  <Button className="w-full bg-green-600 hover:bg-green-700" onClick={proceedToPin} disabled={!selectedNumber || connecting}>
+                    Next
                   </Button>
                 </div>
               )}
 
+              {/* Step 3 — PIN */}
+              {oauthStep === 'pin' && (
+                <div>
+                  <div className="flex items-center gap-3 mb-5">
+                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                      <ShieldCheck className="w-5 h-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">Set a Security PIN</p>
+                      <p className="text-xs text-muted-foreground">{selectedNumber?.display_phone_number}</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Create a 6-digit PIN to secure this WhatsApp number. You'll need this PIN if you ever reconnect or migrate this number.
+                  </p>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 space-y-1">
+                    <p className="text-xs font-semibold text-amber-800">Important:</p>
+                    <p className="text-xs text-amber-700">• If this number had 2FA enabled on WhatsApp, use that existing PIN</p>
+                    <p className="text-xs text-amber-700">• If new, choose any 6-digit PIN and save it somewhere safe</p>
+                    <p className="text-xs text-amber-700">• You cannot recover this PIN — store it securely</p>
+                  </div>
+                  <div className="mb-4">
+                    <Label className="text-xs mb-1 block">6-Digit Security PIN</Label>
+                    <Input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={waPin}
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 6)
+                        setWaPin(val)
+                        if (pinError) setPinError('')
+                      }}
+                      placeholder="••••••"
+                      className={cn('h-10 text-center text-lg tracking-widest', pinError && 'border-destructive')}
+                    />
+                    {pinError && <p className="text-xs text-destructive mt-1">{pinError}</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={() => setOauthStep('select')} disabled={connecting}>Back</Button>
+                    <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={connectWhatsApp} disabled={waPin.length !== 6 || connecting}>
+                      {connecting ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Connecting...</> : 'Connect WhatsApp'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 4 — Done */}
               {oauthStep === 'done' && (
                 <div className="text-center py-6">
                   <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
